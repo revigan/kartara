@@ -93,9 +93,9 @@ router.post('/create-transaction', async (req, res) => {
       },
       item_details: itemDetails,
       callbacks: {
-        finish: `${process.env.NGROK_URL}/api/success?order_id=${orderId}`,
-        error: `${process.env.NGROK_URL}/api/failed?order_id=${orderId}`,
-        pending: `${process.env.NGROK_URL}/api/pending?order_id=${orderId}`
+        finish: `${process.env.APP_URL || process.env.NGROK_URL}/api/success?order_id=${orderId}`,
+        error: `${process.env.APP_URL || process.env.NGROK_URL}/api/failed?order_id=${orderId}`,
+        pending: `${process.env.APP_URL || process.env.NGROK_URL}/api/pending?order_id=${orderId}`
       }
     };
 

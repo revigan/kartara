@@ -1,12 +1,17 @@
 import 'package:pocketbase/pocketbase.dart';
 
 class PocketBaseConfig {
-  // IP default emulator Android: 10.0.2.2. Untuk desktop/web/iOS simulator: 127.0.0.1
-  static const String baseUrl = 'http://127.0.0.1:8090'; 
-  
+  // ── URL PocketBase ────────────────────────────────────────────────────────
+  // ✅ ONLINE (Railway): Ganti dengan URL PocketBase Railway Anda setelah deploy
+  // static const String baseUrl = 'https://GANTI-URL-POCKETBASE-RAILWAY.up.railway.app';
+
+  // 🔧 LOKAL (Development): Gunakan ini saat pengembangan di laptop
+  // IP default emulator Android: 10.0.2.2. Untuk desktop/web/iOS: 127.0.0.1
+  static const String baseUrl = 'http://127.0.0.1:8090';
+
   // Jika true, aplikasi akan mencoba menggunakan PocketBase. Jika false, akan langsung menggunakan mode offline demo.
   static const bool enablePocketBase = true;
-  
+
   // Mengaktifkan fallback otomatis ke mode offline/demo apabila koneksi server PocketBase gagal/timeout
   static const bool enableAutoOfflineFallback = true;
 

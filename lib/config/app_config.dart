@@ -1,18 +1,25 @@
 /// Konfigurasi URL terpusat untuk aplikasi Kartara.
-/// Ganti [ngrokUrl] dengan URL ngrok Anda yang aktif.
+/// Ubah [_mode] untuk beralih antara mode lokal dan online.
 class AppConfig {
-  // ── URL Backend ──────────────────────────────────────────────────────────
-  /// URL ngrok aktif (ganti setiap kali ngrok di-restart)
-  static const String ngrokUrl =
+  // ── MODE SWITCH ───────────────────────────────────────────────────────────
+  // Ganti ke 'production' setelah backend di-deploy ke Railway
+  static const String _mode = 'local'; // 'local' | 'production'
+
+  // ── URL Backend PRODUKSI (Railway) ────────────────────────────────────────
+  /// ✅ Ganti ini dengan URL Backend Railway Anda setelah deploy
+  static const String _railwayUrl =
+      'https://GANTI-URL-BACKEND-RAILWAY.up.railway.app';
+
+  // ── URL Backend LOKAL (Ngrok untuk development) ───────────────────────────
+  /// 🔧 URL ngrok aktif (ganti setiap kali ngrok di-restart)
+  static const String _ngrokUrl =
       'https://surfboard-hardcopy-context.ngrok-free.dev';
 
-  /// Gunakan ini untuk Android Emulator (localhost backend)
-  // static const String _localUrl = 'http://10.0.2.2:3000';
+  // ── URL Aktif (dipilih otomatis berdasarkan _mode) ────────────────────────
+  static String get baseUrl =>
+      _mode == 'production' ? _railwayUrl : _ngrokUrl;
 
-  /// Gunakan ini untuk iOS Simulator / Desktop / Web
-  // static const String _localUrl = 'http://localhost:3000';
-
-  static const String apiBaseUrl = '$ngrokUrl/api';
+  static String get apiBaseUrl => '$baseUrl/api';
   // ── HTTP Headers ──────────────────────────────────────────────────────────
   static const Map<String, String> defaultHeaders = {
     'ngrok-skip-browser-warning': 'true',

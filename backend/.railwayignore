@@ -1,0 +1,6 @@
+node_modules/
+.env
+*.log
+.otp_store.json
+start-dev.bat
+test-api.sh

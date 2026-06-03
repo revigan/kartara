@@ -1,5 +1,6 @@
 # Environment variables
 .env
+.env.railway
 
 # OTP persistent store (data sensitif sementara)
 .otp_store.json
