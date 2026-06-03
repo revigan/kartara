@@ -1,3 +1,5 @@
+import '../config/pocketbase_config.dart';
+
 class PromoBanner {
   final String id;
   final String title;
@@ -18,7 +20,7 @@ class PromoBanner {
       return image; // Support mock / absolute fallback URLs
     }
     // PocketBase dynamic file URL resolution format
-    return 'http://127.0.0.1:8090/api/files/banners/$id/$image';
+    return '${PocketBaseConfig.baseUrl}/api/files/banners/$id/$image';
   }
 
   factory PromoBanner.fromJson(Map<String, dynamic> json) {
