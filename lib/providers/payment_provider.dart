@@ -2,23 +2,32 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import '../config/app_config.dart';
-import '../models/order.dart';
 
-// Payment state
+// ──────────────────────────────────────────────────────────────────────────────
+// KlikQRIS Payment State
+// ──────────────────────────────────────────────────────────────────────────────
 class PaymentState {
   final bool isLoading;
-  final String? snapToken;
-  final String? redirectUrl;
   final String? orderId;
+  final String? qrisImage;      // base64 PNG — ditampilkan langsung di Flutter
+  final String? qrisUrl;        // URL gambar alternatif
+  final String? totalAmount;    // Total final yang ditampilkan ke pembeli (sudah + MDR)
+  final String? expiredAt;      // Waktu kedaluwarsa QRIS
+  final String? expiredMenit;   // Durasi kedaluwarsa dalam menit
+  final String? signature;
   final String? error;
-  final String paymentStatus; // pending_payment, paid, failed, expired
-  final String transactionStatus; // settlement, pending, deny, cancel, expire
+  final String paymentStatus;   // pending_payment | paid | failed | expired
+  final String transactionStatus; // settlement | pending | expired
 
   PaymentState({
     this.isLoading = false,
-    this.snapToken,
-    this.redirectUrl,
     this.orderId,
+    this.qrisImage,
+    this.qrisUrl,
+    this.totalAmount,
+    this.expiredAt,
+    this.expiredMenit,
+    this.signature,
     this.error,
     this.paymentStatus = 'pending_payment',
     this.transactionStatus = 'pending',
@@ -26,18 +35,26 @@ class PaymentState {
 
   PaymentState copyWith({
     bool? isLoading,
-    String? snapToken,
-    String? redirectUrl,
     String? orderId,
+    String? qrisImage,
+    String? qrisUrl,
+    String? totalAmount,
+    String? expiredAt,
+    String? expiredMenit,
+    String? signature,
     String? error,
     String? paymentStatus,
     String? transactionStatus,
   }) {
     return PaymentState(
       isLoading: isLoading ?? this.isLoading,
-      snapToken: snapToken ?? this.snapToken,
-      redirectUrl: redirectUrl ?? this.redirectUrl,
       orderId: orderId ?? this.orderId,
+      qrisImage: qrisImage ?? this.qrisImage,
+      qrisUrl: qrisUrl ?? this.qrisUrl,
+      totalAmount: totalAmount ?? this.totalAmount,
+      expiredAt: expiredAt ?? this.expiredAt,
+      expiredMenit: expiredMenit ?? this.expiredMenit,
+      signature: signature ?? this.signature,
       error: error ?? this.error,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       transactionStatus: transactionStatus ?? this.transactionStatus,
@@ -45,7 +62,9 @@ class PaymentState {
   }
 }
 
-// Payment provider
+// ──────────────────────────────────────────────────────────────────────────────
+// KlikQRIS Payment Notifier
+// ──────────────────────────────────────────────────────────────────────────────
 class PaymentNotifier extends StateNotifier<PaymentState> {
   PaymentNotifier() : super(PaymentState());
 
@@ -56,13 +75,16 @@ class PaymentNotifier extends StateNotifier<PaymentState> {
     headers: AppConfig.defaultHeaders,
   ));
 
-  // Create Midtrans transaction
+  /// Buat transaksi QRIS baru via KlikQRIS.
+  /// Mengembalikan true jika QRIS berhasil dibuat dan [qrisImage] tersedia.
   Future<bool> createTransaction({
     required String orderId,
     required double totalAmount,
     required String customerName,
-    required String customerEmail,
-    required String customerPhone,
+    String? keterangan,
+    // Parameter lama diterima tapi diabaikan agar kompatibel
+    String? customerEmail,
+    String? customerPhone,
     String? paymentType,
     List<Map<String, dynamic>>? items,
   }) async {
@@ -73,96 +95,76 @@ class PaymentNotifier extends StateNotifier<PaymentState> {
         'orderId': orderId,
         'totalAmount': totalAmount,
         'customerName': customerName,
-        'customerEmail': customerEmail,
-        'customerPhone': customerPhone,
-        'paymentType': paymentType,
-        'items': items ?? [
-          {
-            'id': 'item-1',
-            'price': totalAmount.round(),
-            'quantity': 1,
-            'name': 'Pesanan Kartara'
-          }
-        ],
+        'keterangan': keterangan ?? 'Pembayaran Pesanan #$orderId',
       });
 
       if (response.statusCode == 200 && response.data['success'] == true) {
+        final data = response.data;
         state = state.copyWith(
           isLoading: false,
-          snapToken: response.data['snap_token'],
-          redirectUrl: response.data['redirect_url'],
-          orderId: response.data['order_id'],
+          orderId: data['order_id'],
+          qrisImage: data['qris_image'],
+          qrisUrl: data['qris_url'],
+          totalAmount: data['total_amount']?.toString(),
+          expiredAt: data['expired_at'],
+          expiredMenit: data['expired_menit']?.toString(),
+          signature: data['signature'],
         );
         return true;
       } else {
         state = state.copyWith(
           isLoading: false,
-          error: 'Gagal membuat transaksi pembayaran',
+          error: response.data['error'] ?? 'Gagal membuat transaksi QRIS',
         );
         return false;
       }
     } on DioException catch (e) {
-      debugPrint('Create transaction error: $e');
+      debugPrint('KlikQRIS createTransaction error: $e');
       String errorMsg = 'Gagal menghubungi server pembayaran';
-      if (e.response?.statusCode == 401) {
-        errorMsg = 'Konfigurasi Midtrans tidak valid. Hubungi admin.';
-      } else if (e.response?.statusCode == 400) {
-        errorMsg = 'Data pesanan tidak lengkap. Coba lagi.';
-      } else if (e.response?.statusCode == 500) {
-        final msg = e.response?.data['message']?.toString() ?? '';
-        if (msg.contains('Access denied') || msg.contains('unauthorized')) {
-          errorMsg = 'Kunci Midtrans tidak valid. Hubungi admin untuk konfigurasi ulang.';
-        } else {
-          errorMsg = 'Server pembayaran error. Coba metode COD atau Transfer Bank.';
-        }
-      } else if (e.type == DioExceptionType.connectionTimeout ||
-                 e.type == DioExceptionType.receiveTimeout) {
+      if (e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.receiveTimeout) {
         errorMsg = 'Koneksi timeout. Periksa koneksi internet Anda.';
-      } else if (e.type == DioExceptionType.unknown) {
-        errorMsg = 'Tidak dapat menghubungi server. Gunakan COD atau Transfer Bank.';
+      } else if (e.response?.statusCode == 400) {
+        errorMsg = e.response?.data['error'] ?? 'Data pesanan tidak valid.';
       }
       state = state.copyWith(isLoading: false, error: errorMsg);
       return false;
     } catch (e) {
-      debugPrint('Create transaction error: $e');
-      state = state.copyWith(
-        isLoading: false,
-        error: 'Terjadi kesalahan. Coba metode COD atau Transfer Bank.',
-      );
+      debugPrint('KlikQRIS createTransaction unknown error: $e');
+      state = state.copyWith(isLoading: false, error: 'Terjadi kesalahan.');
       return false;
     }
   }
 
-  // Check payment status
-  Future<void> checkPaymentStatus(String orderId) async {
+  /// Cek status pembayaran via backend (PocketBase + KlikQRIS).
+  Future<bool> checkPaymentStatus(String orderId) async {
     try {
       final response = await _dio.get('/payment-status/$orderId');
-
       if (response.statusCode == 200 && response.data['success'] == true) {
-        final transactionStatus = response.data['transaction_status'] ?? 'pending';
+        final txStatus = response.data['transaction_status'] ?? 'pending';
         final order = response.data['order'];
-        
-        String paymentStatus = 'pending_payment';
+        String payStatus = state.paymentStatus;
         if (order != null) {
-          paymentStatus = order['payment_status'] ?? 'pending_payment';
+          payStatus = order['payment_status'] ?? 'pending_payment';
         }
-
         state = state.copyWith(
-          paymentStatus: paymentStatus,
-          transactionStatus: transactionStatus,
+          paymentStatus: payStatus,
+          transactionStatus: txStatus,
         );
+        return payStatus == 'paid' || txStatus == 'settlement';
       }
     } catch (e) {
-      debugPrint('Check payment status error: $e');
+      debugPrint('checkPaymentStatus error: $e');
     }
+    return false;
   }
 
-  // Reset state
   void reset() {
     state = PaymentState();
   }
 }
 
-final paymentProvider = StateNotifierProvider<PaymentNotifier, PaymentState>((ref) {
+final paymentProvider =
+    StateNotifierProvider<PaymentNotifier, PaymentState>((ref) {
   return PaymentNotifier();
 });

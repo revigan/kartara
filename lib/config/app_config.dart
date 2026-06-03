@@ -2,13 +2,12 @@
 /// Ubah [_mode] untuk beralih antara mode lokal dan online.
 class AppConfig {
   // ── MODE SWITCH ───────────────────────────────────────────────────────────
-  // Ganti ke 'production' setelah backend di-deploy ke Railway
-  static const String _mode = 'local'; // 'local' | 'production'
+  // ✅ production = pakai Railway | local = pakai ngrok
+  static const String _mode = 'production';
 
   // ── URL Backend PRODUKSI (Railway) ────────────────────────────────────────
-  /// ✅ Ganti ini dengan URL Backend Railway Anda setelah deploy
   static const String _railwayUrl =
-      'https://GANTI-URL-BACKEND-RAILWAY.up.railway.app';
+      'https://kartara-production-1c7d.up.railway.app';
 
   // ── URL Backend LOKAL (Ngrok untuk development) ───────────────────────────
   /// 🔧 URL ngrok aktif (ganti setiap kali ngrok di-restart)
