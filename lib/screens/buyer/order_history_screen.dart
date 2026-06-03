@@ -200,11 +200,64 @@ class _OrderHistoryScreenState extends ConsumerState<OrderHistoryScreen> {
     );
   }
 
+  void _showCancelConfirmationDialog(BuildContext context, WidgetRef ref, String orderId) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFFFAF7F2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Batalkan Pesanan',
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF2C2C2C)),
+        ),
+        content: const Text(
+          'Apakah Anda yakin ingin membatalkan pesanan ini? Aksi ini tidak dapat dibatalkan.',
+          style: TextStyle(fontSize: 13, height: 1.4, color: Color(0xFF6B5E52)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              
+              // Call cancelOrder in the provider
+              await ref.read(ordersProvider.notifier).cancelOrder(orderId);
+              
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Row(
+                      children: [
+                        Icon(Icons.check_circle_outline, color: Colors.white, size: 20),
+                        SizedBox(width: 8),
+                        Text('Pesanan berhasil dibatalkan.'),
+                      ],
+                    ),
+                    backgroundColor: const Color(0xFFC0430E),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD32F2F),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Ya, Batalkan', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final orders = ref.watch(ordersProvider);
     final navNotifier = ref.read(navigationProvider.notifier);
-    final cartNotifier = ref.read(cartProvider.notifier);
     final products = ref.watch(productsProvider);
 
     // Default products for thumbnails fallback
@@ -480,7 +533,53 @@ class _OrderHistoryScreenState extends ConsumerState<OrderHistoryScreen> {
                                   ),
                                   Row(
                                     children: [
-                                      if (orderStatus == 'selesai') ...[
+                                      if (orderStatus == 'pending') ...[
+                                        // Batalkan Pesanan Button
+                                        GestureDetector(
+                                          onTap: () => _showCancelConfirmationDialog(context, ref, order.id),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius: BorderRadius.circular(10),
+                                              border: Border.all(
+                                                color: const Color(0xFFD32F2F),
+                                              ),
+                                            ),
+                                            child: const Text(
+                                              'Batalkan Pesanan',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFFD32F2F),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        // Bayar Button
+                                        GestureDetector(
+                                          onTap: () => navNotifier.navigateToBuyer('payment', order: order),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius: BorderRadius.circular(10),
+                                              border: Border.all(
+                                                color: const Color(0xFFC0430E),
+                                              ),
+                                            ),
+                                            child: const Text(
+                                              'Bayar',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFFC0430E),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ] else if (orderStatus == 'selesai') ...[
                                         // Button Ulasan
                                         GestureDetector(
                                           onTap: isReviewed
@@ -514,15 +613,9 @@ class _OrderHistoryScreenState extends ConsumerState<OrderHistoryScreen> {
                                           ),
                                         ),
                                       ] else ...[
-                                        // Button Lacak / Bayar
+                                        // Button Lacak
                                         GestureDetector(
-                                          onTap: () {
-                                            if (orderStatus == 'pending') {
-                                              navNotifier.navigateToBuyer('payment', order: order);
-                                            } else {
-                                              navNotifier.navigateToBuyer('tracking', order: order);
-                                            }
-                                          },
+                                          onTap: () => navNotifier.navigateToBuyer('tracking', order: order),
                                           child: Container(
                                             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                                             decoration: BoxDecoration(
@@ -532,9 +625,9 @@ class _OrderHistoryScreenState extends ConsumerState<OrderHistoryScreen> {
                                                 color: const Color(0xFFC0430E),
                                               ),
                                             ),
-                                            child: Text(
-                                              orderStatus == 'pending' ? 'Bayar' : 'Lacak',
-                                              style: const TextStyle(
+                                            child: const Text(
+                                              'Lacak',
+                                              style: TextStyle(
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.bold,
                                                 color: Color(0xFFC0430E),
@@ -543,37 +636,6 @@ class _OrderHistoryScreenState extends ConsumerState<OrderHistoryScreen> {
                                           ),
                                         ),
                                       ],
-                                      const SizedBox(width: 8),
-                                      // Beli Lagi Button
-                                      GestureDetector(
-                                        onTap: () {
-                                          cartNotifier.addToCart(p, qty: order.items.isNotEmpty ? order.items.first.quantity : 1);
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(
-                                              content: Text('${p.name} ditambahkan kembali ke keranjang!'),
-                                              backgroundColor: const Color(0xFFC0430E),
-                                              behavior: SnackBarBehavior.floating,
-                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                            ),
-                                          );
-                                          navNotifier.navigateToBuyer('cart');
-                                        },
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFFC0430E),
-                                            borderRadius: BorderRadius.circular(10),
-                                          ),
-                                          child: const Text(
-                                            'Beli Lagi',
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.bold,
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
                                     ],
                                   ),
                                 ],

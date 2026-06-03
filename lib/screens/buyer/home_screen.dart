@@ -25,6 +25,7 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
   bool _filterInStockOnly = false;
 
   late final PageController _bannerController;
+  late final TextEditingController _searchController;
   Timer? _bannerTimer;
   int _currentBannerPage = 0;
 
@@ -39,12 +40,14 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
   void initState() {
     super.initState();
     _bannerController = PageController(initialPage: 0);
+    _searchController = TextEditingController(text: _searchQuery);
   }
 
   @override
   void dispose() {
     _bannerTimer?.cancel();
     _bannerController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -109,12 +112,7 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
       backgroundColor: _showCatalog ? Colors.white : const Color(0xFFFAF7F2),
       body: _showCatalog ? _buildCatalogView(filteredProducts, cart, navNotifier, cartNotifier, navState) : _buildDashboardView(activeBanners, cart, navNotifier, navState, orders, products, cartNotifier),
       
-      bottomNavigationBar: _buildBottomNav(
-        navState.buyerTab,
-        navNotifier,
-        cart.length,
-        orders.where((o) => o.status.toLowerCase() != 'selesai').length,
-      ),
+
       
       // Floating Action Button untuk Asisten Kartara (hanya di dashboard)
       floatingActionButton: !_showCatalog ? FloatingActionButton(
@@ -147,6 +145,13 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
     }).toList();
     final displayProducts = activeProducts.take(4).toList();
 
+    final searchResults = products.where((p) {
+      final matchesSearch = p.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          p.sellerName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          p.category.toLowerCase().contains(_searchQuery.toLowerCase());
+      return p.isActive && matchesSearch;
+    }).toList();
+
     return Stack(
       children: [
         SafeArea(
@@ -167,51 +172,55 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
                       _buildSearchBar(),
                       const SizedBox(height: 20),
 
-                      // Promo Banner
-                      _buildPromoBanner(activeBanners),
-                      const SizedBox(height: 24),
+                      if (_searchQuery.isNotEmpty) ...[
+                        _buildLiveSearchResults(searchResults, cartNotifier, navNotifier),
+                      ] else ...[
+                        // Promo Banner
+                        _buildPromoBanner(activeBanners),
+                        const SizedBox(height: 24),
 
-                      // Kategori Pilihan
-                      _buildKategoriPilihan(),
-                      const SizedBox(height: 24),
+                        // Kategori Pilihan
+                        _buildKategoriPilihan(),
+                        const SizedBox(height: 24),
 
-                      // Today's Recommendations Header
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Rekomendasi Hari Ini',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              fontFamily: 'Outfit',
-                              color: Color(0xFF5D4037),
-                            ),
-                          ),
-                          GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _selectedCategory = 'Semua';
-                                _showCatalog = true;
-                              });
-                            },
-                            child: const Text(
-                              'Lihat Semua',
+                        // Today's Recommendations Header
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Rekomendasi Hari Ini',
                               style: TextStyle(
-                                fontSize: 14,
+                                fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFFC0430E),
+                                fontFamily: 'Outfit',
+                                color: Color(0xFF5D4037),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _selectedCategory = 'Semua';
+                                  _showCatalog = true;
+                                });
+                              },
+                              child: const Text(
+                                'Lihat Semua',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFFC0430E),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
 
-                      // Product Grid or Empty State
-                      displayProducts.isEmpty
-                          ? _buildEmptyState()
-                          : _buildProductGrid(displayProducts, cartNotifier, navNotifier),
+                        // Product Grid or Empty State
+                        displayProducts.isEmpty
+                            ? _buildEmptyState()
+                            : _buildProductGrid(displayProducts, cartNotifier, navNotifier),
+                      ],
                       const SizedBox(height: 80),
                     ],
                   ),
@@ -223,6 +232,67 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
         
         // Drawer Sidebar Overlay
         if (_isDrawerOpen) _buildSidebarDrawer(context, navNotifier),
+      ],
+    );
+  }
+
+  Widget _buildLiveSearchResults(
+    List<Product> searchResults,
+    CartNotifier cartNotifier,
+    NavigationNotifier navNotifier,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Hasil Pencarian untuk "${_searchQuery}"',
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Outfit',
+                color: Color(0xFF5D4037),
+              ),
+            ),
+            Text(
+              '${searchResults.length} produk',
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF9E9E9E),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        searchResults.isEmpty
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.search_off, size: 64, color: Colors.grey[400]),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Produk tidak ditemukan',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Coba cari kata kunci lain.',
+                        style: TextStyle(color: Colors.grey, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : _buildProductGrid(searchResults, cartNotifier, navNotifier),
       ],
     );
   }
@@ -486,14 +556,8 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Menu Button
-          GestureDetector(
-            onTap: () => setState(() => _isDrawerOpen = true),
-            child: Container(
-              padding: const EdgeInsets.all(2),
-              child: const Icon(Icons.menu, color: Color(0xFFC0430E), size: 28),
-            ),
-          ),
+          // Menu Button (Removed)
+          const SizedBox(width: 28),
           
           // Brand Logo
           const Text(
@@ -634,16 +698,28 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
         border: Border.all(color: const Color(0xFFC0430E), width: 1.5),
       ),
       child: TextField(
+        controller: _searchController,
         onChanged: (val) => setState(() => _searchQuery = val),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           hintText: 'Cari krupuk favoritmu...',
-          hintStyle: TextStyle(
+          hintStyle: const TextStyle(
             fontSize: 14,
             color: Color(0xFF9E9E9E),
           ),
-          prefixIcon: Icon(Icons.search, color: Color(0xFF9E9E9E), size: 22),
+          prefixIcon: const Icon(Icons.search, color: Color(0xFF9E9E9E), size: 22),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, color: Color(0xFF9E9E9E), size: 20),
+                  onPressed: () {
+                    setState(() {
+                      _searchController.clear();
+                      _searchQuery = '';
+                    });
+                  },
+                )
+              : null,
           border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         ),
       ),
     );
@@ -1677,123 +1753,4 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
     );
   }
 
-  // 8. Custom Bottom Navigation Bar - styled vertically (icon on top, label on bottom)
-  Widget _buildBottomNav(int selectedTab, NavigationNotifier navNotifier, int cartCount, int uncompletedCount) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildBottomNavItem(
-                icon: Icons.home_outlined,
-                activeIcon: Icons.home,
-                label: 'Beranda',
-                isActive: selectedTab == 0,
-                onTap: () => navNotifier.changeBuyerTab(0),
-              ),
-              _buildBottomNavItem(
-                icon: Icons.assignment_outlined,
-                activeIcon: Icons.assignment,
-                label: 'Pesanan',
-                isActive: selectedTab == 1,
-                onTap: () => navNotifier.changeBuyerTab(1),
-                badgeCount: uncompletedCount,
-              ),
-              _buildBottomNavItem(
-                icon: Icons.forum_outlined,
-                activeIcon: Icons.forum,
-                label: 'Asisten',
-                isActive: selectedTab == 2,
-                onTap: () => navNotifier.changeBuyerTab(2),
-              ),
-              _buildBottomNavItem(
-                icon: Icons.person_outline,
-                activeIcon: Icons.person,
-                label: 'Akun',
-                isActive: selectedTab == 3,
-                onTap: () => navNotifier.changeBuyerTab(3),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBottomNavItem({
-    required IconData icon,
-    required IconData activeIcon,
-    required String label,
-    required bool isActive,
-    required VoidCallback onTap,
-    int badgeCount = 0,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Icon(
-                isActive ? activeIcon : icon,
-                color: isActive ? const Color(0xFFC0430E) : const Color(0xFF7C7C7C),
-                size: 24,
-              ),
-              if (badgeCount > 0)
-                Positioned(
-                  top: -4,
-                  right: -8,
-                  child: Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFC0430E),
-                      shape: BoxShape.circle,
-                    ),
-                    constraints: const BoxConstraints(
-                      minWidth: 15,
-                      minHeight: 15,
-                    ),
-                    child: Text(
-                      '$badgeCount',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 8.5,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: isActive ? const Color(0xFFC0430E) : const Color(0xFF7C7C7C),
-              fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
-              fontSize: 10,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

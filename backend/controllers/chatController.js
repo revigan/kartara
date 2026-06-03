@@ -12,27 +12,37 @@ async function handleChat(req, res) {
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    // Get context from PocketBase
     const products = await pocketbaseService.getProducts();
     const banners = await pocketbaseService.getBanners();
+    const user = await pocketbaseService.getUserByPhoneOrId(userId);
+    const lastOrder = await pocketbaseService.getLatestOrder(userId || 'guest');
 
-    // Build context for Gemini 2.5 Flash
     const context = {
-      products: products.slice(0, 10), // Limit to top 10 products
-      banners: banners.slice(0, 3), // Limit to top 3 banners
+      products,
+      banners: banners.slice(0, 3),
+      user,
+      lastOrder,
     };
 
-    // Get AI response
     const aiResponse = await geminiService.getChatResponse(
       message,
       conversationHistory || [],
       context
     );
 
-    // Auto-detect if user is asking about order tracking/delivery location
+    // Deteksi intent tracking pesanan dari pesan user
     let trackingOrder = null;
     const msgLower = message.toLowerCase();
-    if (msgLower.includes('pesanan saya dimana') || msgLower.includes('lacak') || msgLower.includes('posisi paket') || msgLower.includes('status paket')) {
+    const isTrackingIntent =
+      msgLower.includes('pesanan') && (msgLower.includes('dimana') || msgLower.includes('mana') || msgLower.includes('posisi') || msgLower.includes('status')) ||
+      msgLower.includes('lacak') ||
+      msgLower.includes('resi') ||
+      msgLower.includes('posisi paket') ||
+      msgLower.includes('cek pesanan') ||
+      msgLower.includes('status pesanan') ||
+      msgLower.includes('paket saya');
+
+    if (isTrackingIntent) {
       try {
         const lastOrder = await pocketbaseService.getLatestOrder(userId || 'guest');
         if (lastOrder) {
@@ -51,10 +61,7 @@ async function handleChat(req, res) {
     });
   } catch (error) {
     console.error('Error in handleChat:', error);
-    res.status(500).json({ 
-      error: 'Failed to process chat message',
-      message: error.message 
-    });
+    res.status(500).json({ error: 'Failed to process chat message', message: error.message });
   }
 }
 
@@ -71,6 +78,7 @@ async function handleQuickReply(req, res) {
 
     let response = '';
     let products = [];
+    let order = null;
 
     switch (action) {
       case 'rekomendasi_kerupuk':
@@ -85,31 +93,47 @@ async function handleQuickReply(req, res) {
 
       case 'promo_hari_ini':
         const banners = await pocketbaseService.getBanners();
-        const promoText = banners.length > 0 
+        const promoText = banners.length > 0
           ? banners.map(b => `• ${b.title}: ${b.subtitle}`).join('\n')
           : 'Belum ada promo khusus hari ini.';
         response = `🎉 Promo Hari Ini:\n\n${promoText}`;
         break;
 
       case 'cara_checkout':
-        response = '📦 Cara checkout di Kartara sangat mudah:\n\n1. Pilih produk yang Anda inginkan\n2. Klik tombol "Tambah ke Keranjang"\n3. Buka keranjang belanja Anda\n4. Pilih produk yang ingin dibeli\n5. Klik "Checkout"\n6. Isi alamat pengiriman\n7. Pilih metode pembayaran\n8. Selesaikan pembayaran\n\nAda yang ingin ditanyakan lagi?';
+        response = '📦 Cara checkout di Kartara sangat mudah:\n\n1. Pilih produk yang Anda inginkan\n2. Klik "Tambah ke Keranjang"\n3. Buka keranjang belanja\n4. Pilih produk yang ingin dibeli\n5. Klik "Checkout"\n6. Isi alamat & kode pos pengiriman\n7. Ongkir otomatis dihitung!\n8. Pilih kurir yang diinginkan\n9. Selesaikan pembayaran via Midtrans\n\nAda yang ingin ditanyakan?';
         break;
 
       case 'cek_ongkir':
         products = await pocketbaseService.getTopRatedProducts(3);
-        response = '🚚 **Cek Ongkir Otomatis**:\n\nAnda dapat mengecek ongkos kirim secara instan saat melakukan Checkout produk. Cukup isi Alamat Lengkap dan Kode Pos di formulir Checkout, kurir seperti J&T Express, JNE, dan Kartara Instant beserta estimasi pengirimannya akan langsung muncul otomatis!\n\nSilakan pilih kerupuk di bawah ini untuk memulai belanja Anda! 🦐';
+        response = '🚚 **Cek Ongkir Otomatis di Kartara!**\n\nSistem ongkir kami bekerja secara otomatis:\n\n1. Masukkan produk ke keranjang\n2. Klik Checkout\n3. Isi **Alamat Lengkap** + **Kode Pos** tujuan\n4. Ongkir langsung dihitung otomatis!\n\nKurir tersedia:\n• 🚛 **J&T Express** — Termurah, estimasi 2-3 hari\n• 📦 **JNE Reguler** — Cepat, estimasi 1-2 hari\n• ⚡ **Kartara Instant** — Ekspres lokal Jepara, 1-3 jam\n\nMulai belanja kerupuk pilihan di bawah ini! 🦐';
         break;
 
       case 'lacak_pesanan':
         try {
           const lastOrder = await pocketbaseService.getLatestOrder(userId || 'guest');
           if (lastOrder) {
-            response = `📦 **Pelacakan Pesanan Terakhir**:\n\n• **ID Invoice**: #${lastOrder.id}\n• **Status**: **${lastOrder.status.toUpperCase()}**\n• **Total Belanja**: Rp ${lastOrder.totalAmount.toLocaleString('id-ID')}\n• **Metode**: ${lastOrder.paymentMethod || 'Midtrans'}\n\nKetik *"Pesanan saya dimana?"* untuk menampilkan peta pelacakan interaktif secara instan! 📍`;
+            order = lastOrder;
+            const statusMap = {
+              'pending': '⏳ Menunggu Pembayaran',
+              'paid': '✅ Sudah Dibayar',
+              'diproses': '🔧 Sedang Diproses',
+              'processing': '🔧 Sedang Diproses',
+              'dikirim': '🚚 Dalam Pengiriman',
+              'shipped': '🚚 Dalam Pengiriman',
+              'selesai': '✅ Pesanan Selesai',
+              'completed': '✅ Pesanan Selesai',
+            };
+            const statusLabel = statusMap[(lastOrder.status || 'pending').toLowerCase()] || lastOrder.status;
+            const courierInfo = lastOrder.courierName
+              ? `• **Kurir**: ${lastOrder.courierName}\n• **No. Resi**: ${lastOrder.trackingNumber}\n• **ETA**: ${lastOrder.courierEta}`
+              : '';
+
+            response = `📦 **Status Pesanan Terakhir Anda:**\n\n• **ID Invoice**: #${lastOrder.id}\n• **Status**: ${statusLabel}\n• **Total**: Rp ${Number(lastOrder.totalAmount).toLocaleString('id-ID')}\n${courierInfo}\n\nTap tombol di bawah untuk membuka peta tracking real-time! 🗺️`;
           } else {
-            response = '📦 **Lacak Pesanan**:\n\nAnda belum memiliki pesanan aktif. Setelah Anda berbelanja dan melakukan pembayaran, Anda dapat memantau status kurir secara real-time lewat peta interaktif bertenaga OpenStreetMap!\n\nSilakan pesan produk kerupuk renyah khas Jepara kami sekarang! 🐟';
+            response = '📦 **Lacak Pesanan**:\n\nAnda belum memiliki pesanan aktif saat ini.\n\nSetelah berbelanja dan membayar, Anda dapat memantau status dan posisi kurir secara **real-time** melalui peta OpenStreetMap interaktif!\n\nYuk mulai belanja kerupuk renyah khas Jepara! 🦐';
           }
         } catch (e) {
-          response = '📦 Ketikkan nomor invoice pesanan Anda untuk melacak status pesanan secara langsung!';
+          response = '📦 Masukkan nomor invoice Anda untuk melacak pesanan secara langsung!';
         }
         break;
 
@@ -120,14 +144,12 @@ async function handleQuickReply(req, res) {
     res.json({
       response,
       products,
+      order,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error('Error in handleQuickReply:', error);
-    res.status(500).json({ 
-      error: 'Failed to process quick reply',
-      message: error.message 
-    });
+    res.status(500).json({ error: 'Failed to process quick reply', message: error.message });
   }
 }
 
@@ -136,30 +158,20 @@ async function handleQuickReply(req, res) {
  */
 async function getRecommendation(req, res) {
   try {
-    const { category, userId } = req.body;
-
+    const { category } = req.body;
     let products = [];
     if (category && category !== 'Semua') {
       products = await pocketbaseService.getProductsByCategory(category, 4);
     } else {
       products = await pocketbaseService.getTopRatedProducts(4);
     }
-
     const response = products.length > 0
       ? `Berikut rekomendasi kerupuk ${category || 'terbaik'} untuk Anda:`
       : 'Maaf, belum ada produk yang tersedia saat ini.';
-
-    res.json({
-      response,
-      products,
-      timestamp: new Date().toISOString(),
-    });
+    res.json({ response, products, timestamp: new Date().toISOString() });
   } catch (error) {
     console.error('Error in getRecommendation:', error);
-    res.status(500).json({ 
-      error: 'Failed to get recommendations',
-      message: error.message 
-    });
+    res.status(500).json({ error: 'Failed to get recommendations', message: error.message });
   }
 }
 
@@ -168,14 +180,11 @@ async function getRecommendation(req, res) {
  */
 async function getOrderStatus(req, res) {
   try {
-    const { orderId, userId } = req.body;
-
+    const { orderId } = req.body;
     if (!orderId) {
       return res.status(400).json({ error: 'Order ID is required' });
     }
-
     const order = await pocketbaseService.getOrderById(orderId);
-
     if (!order) {
       return res.json({
         response: `Maaf, pesanan dengan ID ${orderId} tidak ditemukan. Pastikan ID pesanan Anda benar.`,
@@ -183,25 +192,17 @@ async function getOrderStatus(req, res) {
         timestamp: new Date().toISOString(),
       });
     }
-
-    let statusText = '';
-    switch (order.status.toLowerCase()) {
-      case 'pending':
-        statusText = 'Pesanan Anda sedang menunggu pembayaran.';
-        break;
-      case 'diproses':
-        statusText = 'Pesanan Anda sedang diproses oleh penjual.';
-        break;
-      case 'dikirim':
-        statusText = 'Pesanan Anda sedang dalam pengiriman.';
-        break;
-      case 'selesai':
-        statusText = 'Pesanan Anda telah selesai. Terima kasih!';
-        break;
-      default:
-        statusText = `Status pesanan: ${order.status}`;
-    }
-
+    const statusMap = {
+      'pending': 'Pesanan Anda sedang menunggu pembayaran.',
+      'paid': 'Pembayaran dikonfirmasi, menunggu diproses penjual.',
+      'diproses': 'Pesanan Anda sedang diproses oleh penjual.',
+      'processing': 'Pesanan Anda sedang diproses oleh penjual.',
+      'dikirim': 'Pesanan Anda sedang dalam pengiriman.',
+      'shipped': 'Pesanan Anda sedang dalam pengiriman.',
+      'selesai': 'Pesanan Anda telah selesai. Terima kasih!',
+      'completed': 'Pesanan Anda telah selesai. Terima kasih!',
+    };
+    const statusText = statusMap[(order.status || 'pending').toLowerCase()] || `Status pesanan: ${order.status}`;
     res.json({
       response: `📦 Status Pesanan #${orderId}:\n\n${statusText}`,
       order,
@@ -209,10 +210,7 @@ async function getOrderStatus(req, res) {
     });
   } catch (error) {
     console.error('Error in getOrderStatus:', error);
-    res.status(500).json({ 
-      error: 'Failed to get order status',
-      message: error.message 
-    });
+    res.status(500).json({ error: 'Failed to get order status', message: error.message });
   }
 }
 

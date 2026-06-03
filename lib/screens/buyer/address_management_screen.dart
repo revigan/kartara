@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth_provider.dart';
 
@@ -15,6 +15,7 @@ class _AddressManagementScreenState extends ConsumerState<AddressManagementScree
   void _showEditAddressBottomSheet(BuildContext context) {
     final user = ref.read(authProvider).currentUser;
     final addressController = TextEditingController(text: user?.address ?? '');
+    final postalCodeController = TextEditingController(text: user?.postalCode ?? '');
     final formKey = GlobalKey<FormState>();
 
     showModalBottomSheet(
@@ -102,6 +103,41 @@ class _AddressManagementScreenState extends ConsumerState<AddressManagementScree
                           ),
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: postalCodeController,
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(fontSize: 13.5, color: Color(0xFF1A1A1A)),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Kode pos tidak boleh kosong';
+                          }
+                          return null;
+                        },
+                        decoration: InputDecoration(
+                          hintText: 'Kode Pos',
+                          hintStyle: const TextStyle(color: Colors.grey, fontSize: 13),
+                          filled: true,
+                          fillColor: Colors.white,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: const BorderSide(color: Color(0xFFC0430E), width: 1.5),
+                          ),
+                          errorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+                          ),
+                          focusedErrorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            borderSide: const BorderSide(color: Colors.redAccent, width: 1.5),
+                          ),
+                        ),
+                      ),
                       const SizedBox(height: 32),
                       SizedBox(
                         width: double.infinity,
@@ -115,6 +151,7 @@ class _AddressManagementScreenState extends ConsumerState<AddressManagementScree
                                   
                                   final success = await ref.read(authProvider.notifier).updateAddress(
                                         addressController.text,
+                                        postalCodeController.text,
                                       );
                                       
                                   setModalState(() => _isSaving = false);
@@ -298,6 +335,17 @@ class _AddressManagementScreenState extends ConsumerState<AddressManagementScree
                         height: 1.4,
                       ),
                     ),
+                    if (user != null && user.address.isNotEmpty && user.postalCode.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Kode Pos: ${user.postalCode}',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: Color(0xFF1A1A1A),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

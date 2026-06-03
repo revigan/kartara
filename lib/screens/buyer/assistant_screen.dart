@@ -1,8 +1,10 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../config/app_config.dart';
 import '../../providers/app_state.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/product.dart';
@@ -26,6 +28,32 @@ class ChatMessage {
     this.products,
     this.order,
   });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'sender': sender,
+      'text': text,
+      'timestamp': timestamp.toIso8601String(),
+      'products': products?.map((p) => p.toJson()).toList(),
+      'order': order?.toJson(),
+    };
+  }
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) {
+    return ChatMessage(
+      id: json['id'] as String? ?? '',
+      sender: json['sender'] as String? ?? '',
+      text: json['text'] as String? ?? '',
+      timestamp: DateTime.parse(json['timestamp'] as String? ?? DateTime.now().toIso8601String()),
+      products: json['products'] != null
+          ? (json['products'] as List).map((p) => Product.fromJson(Map<String, dynamic>.from(p))).toList()
+          : null,
+      order: json['order'] != null
+          ? OrderModel.fromJson(Map<String, dynamic>.from(json['order']))
+          : null,
+    );
+  }
 }
 
 // AI Backend Service
@@ -33,16 +61,13 @@ class AIBackendService {
   late final Dio _dio;
   final String baseUrl;
 
-  AIBackendService({String? customBaseUrl}) 
-      : baseUrl = customBaseUrl ?? (kIsWeb ? 'http://localhost:3000' : 'http://10.0.2.2:3000') {
+  AIBackendService({String? customBaseUrl})
+      : baseUrl = customBaseUrl ?? AppConfig.ngrokUrl {
     _dio = Dio(BaseOptions(
       baseUrl: baseUrl,
-      connectTimeout: const Duration(seconds: 30),
-      receiveTimeout: const Duration(seconds: 30),
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
+      connectTimeout: AppConfig.connectTimeout,
+      receiveTimeout: AppConfig.receiveTimeout,
+      headers: AppConfig.defaultHeaders,
     ));
   }
 
@@ -101,33 +126,77 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
   late final AIBackendService _aiService;
   
   // Custom message history list
-  late List<ChatMessage> _messages;
+  List<ChatMessage> _messages = [];
   final List<Map<String, String>> _conversationHistory = [];
+
+  Future<void> _loadChatHistory() async {
+    final authState = ref.read(authProvider);
+    final phone = authState.currentUser?.phone ?? 'guest';
+    final prefs = await SharedPreferences.getInstance();
+
+    final messagesJsonStr = prefs.getString('assistant_messages_$phone');
+    final historyJsonStr = prefs.getString('assistant_history_$phone');
+
+    if (messagesJsonStr != null && historyJsonStr != null) {
+      try {
+        final List decodedMessages = jsonDecode(messagesJsonStr);
+        final List decodedHistory = jsonDecode(historyJsonStr);
+
+        setState(() {
+          _messages = decodedMessages
+              .map((m) => ChatMessage.fromJson(Map<String, dynamic>.from(m)))
+              .toList();
+          _conversationHistory.clear();
+          _conversationHistory.addAll(decodedHistory.map((h) => Map<String, String>.from(h)));
+        });
+        _scrollToBottom();
+        return;
+      } catch (e) {
+        debugPrint('Error loading chat history: $e');
+      }
+    }
+
+    // Default initialization if no history is found
+    setState(() {
+      _messages = [
+        ChatMessage(
+          id: 'msg_init_1',
+          sender: 'assistant',
+          text: 'Hai! Saya Asisten Kartara. Ada yang bisa saya bantu? 😊',
+          timestamp: DateTime.now(),
+        ),
+        ChatMessage(
+          id: 'msg_init_2',
+          sender: 'assistant_options',
+          text: '',
+          timestamp: DateTime.now(),
+        ),
+      ];
+      _conversationHistory.clear();
+      _conversationHistory.add({
+        'role': 'assistant',
+        'content': 'Hai! Saya Asisten Kartara. Ada yang bisa saya bantu? 😊',
+      });
+    });
+  }
+
+  Future<void> _saveChatHistory() async {
+    final authState = ref.read(authProvider);
+    final phone = authState.currentUser?.phone ?? 'guest';
+    final prefs = await SharedPreferences.getInstance();
+
+    final messagesJsonStr = jsonEncode(_messages.map((m) => m.toJson()).toList());
+    final historyJsonStr = jsonEncode(_conversationHistory);
+
+    await prefs.setString('assistant_messages_$phone', messagesJsonStr);
+    await prefs.setString('assistant_history_$phone', historyJsonStr);
+  }
 
   @override
   void initState() {
     super.initState();
     _aiService = AIBackendService();
-    _messages = [
-      ChatMessage(
-        id: 'msg_init_1',
-        sender: 'assistant',
-        text: 'Hai! Saya Asisten Kartara. Ada yang bisa saya bantu? 😊',
-        timestamp: DateTime.now(),
-      ),
-      ChatMessage(
-        id: 'msg_init_2',
-        sender: 'assistant_options',
-        text: '',
-        timestamp: DateTime.now(),
-      ),
-    ];
-    
-    // Add initial greeting to conversation history
-    _conversationHistory.add({
-      'role': 'assistant',
-      'content': 'Hai! Saya Asisten Kartara. Ada yang bisa saya bantu? 😊',
-    });
+    _loadChatHistory();
   }
 
   @override
@@ -153,7 +222,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     if (text.trim().isEmpty) return;
 
     final authState = ref.read(authProvider);
-    final userId = authState.currentUser?.uid ?? 'guest';
+    final userId = authState.currentUser?.uid ?? authState.currentUser?.phone ?? 'guest';
 
     // Add user message
     setState(() {
@@ -173,6 +242,8 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
       'role': 'user',
       'content': text,
     });
+
+    await _saveChatHistory();
 
     try {
       // Call AI backend
@@ -253,6 +324,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
       });
 
       _scrollToBottom();
+      await _saveChatHistory();
     } catch (e) {
       if (!mounted) return;
       
@@ -266,12 +338,13 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
         ));
       });
       _scrollToBottom();
+      await _saveChatHistory();
     }
   }
 
   void _handleQuickReply(String action, String displayText) async {
     final authState = ref.read(authProvider);
-    final userId = authState.currentUser?.uid ?? 'guest';
+    final userId = authState.currentUser?.uid ?? authState.currentUser?.phone ?? 'guest';
 
     // Add user message
     setState(() {
@@ -284,6 +357,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
       _isTyping = true;
     });
     _scrollToBottom();
+    await _saveChatHistory();
 
     try {
       // Call AI backend quick reply
@@ -357,6 +431,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
       });
 
       _scrollToBottom();
+      await _saveChatHistory();
     } catch (e) {
       if (!mounted) return;
       
@@ -370,6 +445,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
         ));
       });
       _scrollToBottom();
+      await _saveChatHistory();
     }
   }
 
@@ -586,6 +662,15 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
   }
 
   Widget _buildOrderTrackingCard(OrderModel order) {
+    Color statusColor = const Color(0xFFC0430E);
+    String statusLabel = order.status.toUpperCase();
+    final s = order.status.toLowerCase();
+    if (s == 'pending') { statusColor = Colors.orange; statusLabel = '⏳ Menunggu Pembayaran'; }
+    else if (s == 'paid') { statusColor = Colors.blue; statusLabel = '✅ Sudah Dibayar'; }
+    else if (s == 'diproses' || s == 'processing') { statusColor = Colors.purple; statusLabel = '🔧 Sedang Diproses'; }
+    else if (s == 'dikirim' || s == 'shipped') { statusColor = Colors.indigo; statusLabel = '🚚 Dalam Pengiriman'; }
+    else if (s == 'selesai' || s == 'completed') { statusColor = Colors.green; statusLabel = '✅ Selesai'; }
+
     return Container(
       margin: const EdgeInsets.only(left: 52, bottom: 12, right: 12),
       padding: const EdgeInsets.all(16),
@@ -595,8 +680,8 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
         border: Border.all(color: const Color(0xFFFFDDCC)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 6,
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
             offset: const Offset(0, 3),
           ),
         ],
@@ -606,24 +691,41 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
         children: [
           Row(
             children: [
-              const Icon(Icons.local_shipping, color: Color(0xFFC0430E), size: 18),
+              const Icon(Icons.receipt_long_outlined, color: Color(0xFFC0430E), size: 18),
               const SizedBox(width: 8),
-              Text(
-                'Lacak Invoice #${order.id}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A1A1A)),
+              Expanded(
+                child: Text(
+                  'Invoice #${order.id}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A1A1A)),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            'Status: ${order.status.toUpperCase()}',
-            style: const TextStyle(fontSize: 11, color: Color(0xFF6B5E52)),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: statusColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(statusLabel, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: statusColor)),
           ),
+          if (order.courierName.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text('🚚 ${order.courierName} · ETA: ${order.displayEta}',
+                style: const TextStyle(fontSize: 11, color: Color(0xFF6B5E52))),
+          ],
+          if (order.generatedTrackingNumber.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text('📦 Resi: ${order.generatedTrackingNumber}',
+                style: const TextStyle(fontSize: 11, color: Color(0xFF6B5E52))),
+          ],
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             height: 38,
-            child: ElevatedButton(
+            child: ElevatedButton.icon(
               onPressed: () {
                 Navigator.push(
                   context,
@@ -637,8 +739,9 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 elevation: 0,
               ),
-              child: const Text(
-                'Buka Detail Pelacakan',
+              icon: const Icon(Icons.map_outlined, color: Colors.white, size: 16),
+              label: const Text(
+                'Buka Detail & Peta Tracking',
                 style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
               ),
             ),

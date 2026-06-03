@@ -6,12 +6,32 @@ const paymentRoutes = require('./routes/payment');
 const authRoutes = require('./routes/auth');
 const chatRoutes = require('./routes/chat');
 const shippingRoutes = require('./routes/shipping');
+const trackingRoutes = require('./routes/tracking');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+const corsOptions = {
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'ngrok-skip-browser-warning',
+    'Accept',
+    'X-Requested-With',
+  ],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  credentials: false,
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
+};
+
+// Handle preflight OPTIONS request SEBELUM route lain
+app.options('*', cors(corsOptions));
+app.use(cors(corsOptions));
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -20,6 +40,7 @@ app.use('/api', paymentRoutes);
 app.use('/api', authRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/shipping', shippingRoutes);
+app.use('/api/tracking', trackingRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

@@ -1,7 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
+import 'register_otp_screen.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   final VoidCallback onNavigateToLogin;
@@ -56,26 +57,16 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           );
 
       if (success && mounted) {
-        // Tampilkan pesan sukses
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Pendaftaran berhasil! Silakan masuk.'),
-            backgroundColor: const Color(0xFF4CAF50),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            duration: const Duration(seconds: 2),
+        // OTP terkirim – arahkan ke halaman verifikasi OTP
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => RegisterOtpScreen(
+              email: _emailController.text.trim().toLowerCase(),
+              onNavigateToLogin: widget.onNavigateToLogin,
+            ),
           ),
         );
-        
-        // Tunggu sebentar agar user sempat melihat pesan sukses
-        await Future.delayed(const Duration(milliseconds: 500));
-        
-        // Arahkan ke halaman login
-        if (mounted) {
-          widget.onNavigateToLogin();
-        }
       } else if (!success && mounted) {
-        // Tampilkan pesan error jika registrasi gagal
         final authState = ref.read(authProvider);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

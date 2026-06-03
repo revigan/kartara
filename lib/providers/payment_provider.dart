@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import '../config/app_config.dart';
 import '../models/order.dart';
 
 // Payment state
@@ -49,14 +50,10 @@ class PaymentNotifier extends StateNotifier<PaymentState> {
   PaymentNotifier() : super(PaymentState());
 
   final Dio _dio = Dio(BaseOptions(
-    // URL ngrok aktif - ganti jika ngrok URL berubah
-    baseUrl: 'https://surfboard-hardcopy-context.ngrok-free.dev/api',
+    baseUrl: AppConfig.apiBaseUrl,
     connectTimeout: const Duration(seconds: 30),
     receiveTimeout: const Duration(seconds: 30),
-    headers: {
-      'ngrok-skip-browser-warning': 'true',
-      'Content-Type': 'application/json',
-    },
+    headers: AppConfig.defaultHeaders,
   ));
 
   // Create Midtrans transaction
@@ -66,6 +63,7 @@ class PaymentNotifier extends StateNotifier<PaymentState> {
     required String customerName,
     required String customerEmail,
     required String customerPhone,
+    String? paymentType,
     List<Map<String, dynamic>>? items,
   }) async {
     state = state.copyWith(isLoading: true, error: null);
@@ -77,6 +75,7 @@ class PaymentNotifier extends StateNotifier<PaymentState> {
         'customerName': customerName,
         'customerEmail': customerEmail,
         'customerPhone': customerPhone,
+        'paymentType': paymentType,
         'items': items ?? [
           {
             'id': 'item-1',

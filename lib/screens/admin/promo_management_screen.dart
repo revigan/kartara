@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
 import '../../config/pocketbase_config.dart';
 import '../../providers/app_state.dart';
+import '../../providers/auth_provider.dart';
 import '../../models/promo_banner.dart';
 import '../../models/coupon.dart';
 import '../../models/product.dart';
@@ -308,6 +309,13 @@ class _AdminPromoManagementScreenState extends ConsumerState<AdminPromoManagemen
       final pb = PocketBase(PocketBaseConfig.baseUrl);
       await pb.collection('banners').update(banner.id, body: {'isActive': val});
       ref.read(bannersProvider.notifier).fetchBanners();
+
+      final adminName = ref.read(authProvider).currentUser?.name ?? 'Admin Kartara';
+      await PocketBaseConfig.logActivity(
+        title: '${val ? "Mengaktifkan" : "Menonaktifkan"} banner promo "${banner.title}"',
+        icon: 'image',
+        admin: adminName,
+      );
     } catch (e) {
       debugPrint('Error toggling banner: $e');
     }
@@ -319,6 +327,13 @@ class _AdminPromoManagementScreenState extends ConsumerState<AdminPromoManagemen
       final pb = PocketBase(PocketBaseConfig.baseUrl);
       await pb.collection('coupons').update(coupon.id, body: {'isActive': val});
       ref.read(couponsProvider.notifier).fetchCoupons();
+
+      final adminName = ref.read(authProvider).currentUser?.name ?? 'Admin Kartara';
+      await PocketBaseConfig.logActivity(
+        title: '${val ? "Mengaktifkan" : "Menonaktifkan"} kupon belanja "${coupon.code}"',
+        icon: 'card_giftcard',
+        admin: adminName,
+      );
     } catch (e) {
       debugPrint('Error toggling coupon: $e');
     }
@@ -344,6 +359,13 @@ class _AdminPromoManagementScreenState extends ConsumerState<AdminPromoManagemen
                 final pb = PocketBase(PocketBaseConfig.baseUrl);
                 await pb.collection('banners').delete(banner.id);
                 ref.read(bannersProvider.notifier).fetchBanners();
+
+                final adminName = ref.read(authProvider).currentUser?.name ?? 'Admin Kartara';
+                await PocketBaseConfig.logActivity(
+                  title: 'Menghapus banner promo "${banner.title}"',
+                  icon: 'image',
+                  admin: adminName,
+                );
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
@@ -374,6 +396,13 @@ class _AdminPromoManagementScreenState extends ConsumerState<AdminPromoManagemen
                 final pb = PocketBase(PocketBaseConfig.baseUrl);
                 await pb.collection('coupons').delete(coupon.id);
                 ref.read(couponsProvider.notifier).fetchCoupons();
+
+                final adminName = ref.read(authProvider).currentUser?.name ?? 'Admin Kartara';
+                await PocketBaseConfig.logActivity(
+                  title: 'Menghapus kupon belanja "${coupon.code}"',
+                  icon: 'card_giftcard',
+                  admin: adminName,
+                );
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
@@ -553,9 +582,10 @@ class _AdminPromoManagementScreenState extends ConsumerState<AdminPromoManagemen
                             }
                             Navigator.pop(context);
                             
-                            if (PocketBaseConfig.enablePocketBase) {
+                             if (PocketBaseConfig.enablePocketBase) {
                               try {
                                 final pb = PocketBase(PocketBaseConfig.baseUrl);
+                                final adminName = ref.read(authProvider).currentUser?.name ?? 'Admin Kartara';
                                 if (banner != null) {
                                   if (selectedImage != null) {
                                     final bytes = await selectedImage!.readAsBytes();
@@ -583,6 +613,11 @@ class _AdminPromoManagementScreenState extends ConsumerState<AdminPromoManagemen
                                       },
                                     );
                                   }
+                                  await PocketBaseConfig.logActivity(
+                                    title: 'Mengubah banner promo "${titleCtrl.text.trim()}"',
+                                    icon: 'image',
+                                    admin: adminName,
+                                  );
                                 } else {
                                   final bytes = await selectedImage!.readAsBytes();
                                   final multipartFile = http.MultipartFile.fromBytes(
@@ -598,6 +633,11 @@ class _AdminPromoManagementScreenState extends ConsumerState<AdminPromoManagemen
                                       'isActive': isActive,
                                     },
                                     files: [multipartFile],
+                                  );
+                                  await PocketBaseConfig.logActivity(
+                                    title: 'Menambahkan banner promo baru "${titleCtrl.text.trim()}"',
+                                    icon: 'image',
+                                    admin: adminName,
                                   );
                                 }
                                 ref.read(bannersProvider.notifier).fetchBanners();
@@ -722,6 +762,7 @@ class _AdminPromoManagementScreenState extends ConsumerState<AdminPromoManagemen
                               final pb = PocketBase(PocketBaseConfig.baseUrl);
                               final discount = double.tryParse(amountCtrl.text.trim()) ?? 0;
                               final minPurchase = double.tryParse(minCtrl.text.trim()) ?? 0;
+                              final adminName = ref.read(authProvider).currentUser?.name ?? 'Admin Kartara';
                               if (coupon != null) {
                                 await pb.collection('coupons').update(coupon.id, body: {
                                   'code': 'DISKON${discount.toInt()}',
@@ -729,6 +770,11 @@ class _AdminPromoManagementScreenState extends ConsumerState<AdminPromoManagemen
                                   'minPurchase': minPurchase,
                                   'isActive': isActive,
                                 });
+                                await PocketBaseConfig.logActivity(
+                                  title: 'Memperbarui kupon belanja KARTARA${discount.toInt()}',
+                                  icon: 'card_giftcard',
+                                  admin: adminName,
+                                );
                               } else {
                                 await pb.collection('coupons').create(body: {
                                   'code': 'DISKON${discount.toInt()}',
@@ -736,6 +782,11 @@ class _AdminPromoManagementScreenState extends ConsumerState<AdminPromoManagemen
                                   'minPurchase': minPurchase,
                                   'isActive': isActive,
                                 });
+                                await PocketBaseConfig.logActivity(
+                                  title: 'Menambahkan kupon belanja baru KARTARA${discount.toInt()}',
+                                  icon: 'card_giftcard',
+                                  admin: adminName,
+                                );
                               }
                               ref.read(couponsProvider.notifier).fetchCoupons();
                             }

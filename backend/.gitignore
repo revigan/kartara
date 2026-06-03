@@ -1,6 +1,9 @@
 # Environment variables
 .env
 
+# OTP persistent store (data sensitif sementara)
+.otp_store.json
+
 # Node modules
 node_modules/
 

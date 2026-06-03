@@ -13,11 +13,13 @@ import '../models/promo_banner.dart';
 import '../models/coupon.dart';
 import '../models/user.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'auth_provider.dart';
 // ==========================================
 // 1. PRODUCTS PROVIDER (CRUD STATE)
 // ==========================================
 class ProductListNotifier extends StateNotifier<List<Product>> {
-  ProductListNotifier() : super([]) {
+  final Ref ref;
+  ProductListNotifier(this.ref) : super([]) {
     fetchProducts();
   }
 
@@ -146,6 +148,13 @@ class ProductListNotifier extends StateNotifier<List<Product>> {
         files: files,
       );
 
+      final adminName = ref.read(authProvider).currentUser?.name ?? 'Admin Kartara';
+      await PocketBaseConfig.logActivity(
+        title: 'Menambahkan produk baru "${product.name}"',
+        icon: 'add',
+        admin: adminName,
+      );
+
       // Re-fetch to sync real PocketBase record IDs and file paths
       await fetchProducts();
     } catch (e) {
@@ -163,6 +172,7 @@ class ProductListNotifier extends StateNotifier<List<Product>> {
     String? mobileImagePath,
   }) async {
     // Blazing-fast optimistic update
+    final oldProduct = state.firstWhere((p) => p.id == updatedProduct.id, orElse: () => updatedProduct);
     state = [
       for (final p in state)
         if (p.id == updatedProduct.id) updatedProduct else p
@@ -209,6 +219,21 @@ class ProductListNotifier extends StateNotifier<List<Product>> {
         files: files,
       );
 
+      final adminName = ref.read(authProvider).currentUser?.name ?? 'Admin Kartara';
+      String logTitle = 'Mengubah detail produk "${updatedProduct.name}"';
+      if (oldProduct.price != updatedProduct.price || oldProduct.originalPrice != updatedProduct.originalPrice) {
+        if (updatedProduct.originalPrice == 0.0) {
+          logTitle = 'Menghapus diskon produk "${updatedProduct.name}"';
+        } else {
+          logTitle = 'Mengubah diskon produk "${updatedProduct.name}"';
+        }
+      }
+      await PocketBaseConfig.logActivity(
+        title: logTitle,
+        icon: 'edit',
+        admin: adminName,
+      );
+
       await fetchProducts();
     } catch (e) {
       debugPrint('Error updating product in PocketBase: $e');
@@ -219,6 +244,24 @@ class ProductListNotifier extends StateNotifier<List<Product>> {
   }
 
   Future<void> deleteProduct(String id) async {
+    final product = state.firstWhere(
+      (p) => p.id == id,
+      orElse: () => Product(
+        id: id,
+        name: 'Produk Tidak Dikenal',
+        sellerName: '',
+        price: 0.0,
+        originalPrice: 0.0,
+        imageUrl: '',
+        category: '',
+        rating: 0.0,
+        reviewsCount: 0,
+        weight: 0,
+        description: '',
+        characteristics: const [],
+        stock: 0,
+      ),
+    );
     // Blazing-fast optimistic update
     state = state.where((p) => p.id != id).toList();
 
@@ -226,6 +269,12 @@ class ProductListNotifier extends StateNotifier<List<Product>> {
 
     try {
       await pb.collection('products').delete(id);
+      final adminName = ref.read(authProvider).currentUser?.name ?? 'Admin Kartara';
+      await PocketBaseConfig.logActivity(
+        title: 'Menghapus produk "${product.name}"',
+        icon: 'edit',
+        admin: adminName,
+      );
       // Automatically refresh in the background without full page reload/splash screen!
       await fetchProducts();
     } catch (e) {
@@ -263,7 +312,7 @@ class ProductListNotifier extends StateNotifier<List<Product>> {
 
 
 final productsProvider = StateNotifierProvider<ProductListNotifier, List<Product>>((ref) {
-  return ProductListNotifier();
+  return ProductListNotifier(ref);
 });
 
 // ==========================================
@@ -429,7 +478,9 @@ class OrderListNotifier extends StateNotifier<List<OrderModel>> {
     if (!PocketBaseConfig.enablePocketBase) return;
     try {
       pb.collection('orders').subscribe('*', (e) {
-        loadOrders();
+        if (mounted) {
+          loadOrders();
+        }
       });
     } catch (err) {
       debugPrint('Error subscribing to orders real-time SSE: $err');
@@ -441,28 +492,87 @@ class OrderListNotifier extends StateNotifier<List<OrderModel>> {
   Future<void> loadOrders() async {
     if (!PocketBaseConfig.enablePocketBase) return;
     try {
+      final authState = ref.read(authProvider);
+      final currentUser = authState.currentUser;
+      if (currentUser == null) {
+        state = [];
+        return;
+      }
+
+      String? filter;
+      if (currentUser.role == 'buyer') {
+        // Filter by buyerId (UID) for precise per-user isolation.
+        // Falls back to buyerPhone for legacy orders that don't have buyerId set.
+        final uid = currentUser.uid;
+        if (uid.isEmpty) {
+          state = [];
+          return;
+        }
+        filter = 'buyerId = "$uid" || (buyerId = "" && buyerPhone = "${currentUser.phone}")';
+      }
+
       final records = await pb.collection('orders').getFullList(
         sort: '-created',
+        filter: filter,
       );
+      if (!mounted) return;
       state = records.map((record) {
         return OrderModel.fromJson({
           'id': record.id,
           'items': record.data['items'],
-          'status': record.data['status'].toString().toLowerCase(), // Normalize to lowercase for local Flutter state
-          'orderDate': record.created, // Use PB auto created datetime
+          'status': record.data['status'].toString().toLowerCase(),
+          'orderDate': record.created,
           'recipientName': record.data['buyerName'] ?? '',
           'recipientPhone': record.data['buyerPhone'] ?? '',
           'shippingAddress': record.data['shippingAddress'] ?? '',
           'paymentMethod': record.data['paymentMethod'] ?? 'E-Wallet',
           'subtotal': (record.data['totalAmount'] as num?)?.toDouble() ?? 0.0,
-          'shippingFee': 0.0,
+          'shippingFee': (record.data['shippingFee'] as num?)?.toDouble() ?? 0.0,
           'discount': (record.data['discount'] as num?)?.toDouble() ?? 0.0,
           'totalInvoice': (record.data['totalAmount'] as num?)?.toDouble() ?? 0.0,
+          // New shipping fields
+          'courierName': record.data['courierName'] ?? 'Kartara Instant',
+          'courierService': record.data['courierService'] ?? 'Reguler',
+          'courierEta': record.data['courierEta'] ?? '',
+          'trackingNumber': record.data['trackingNumber'] ?? '',
+          'postalCode': record.data['postalCode'] ?? '',
+          'destinationCity': record.data['destinationCity'] ?? '',
+          'courierProgress': (record.data['courierProgress'] as num?)?.toDouble() ?? 0.3,
         });
       }).toList();
     } catch (e) {
       debugPrint('Error loading orders from database: $e');
-      state = []; // Set state to empty list as a safety fallback
+      if (mounted) {
+        state = []; // Set state to empty list as a safety fallback
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    if (PocketBaseConfig.enablePocketBase) {
+      try {
+        pb.collection('orders').unsubscribe('*');
+      } catch (err) {
+        debugPrint('Error unsubscribing from orders real-time SSE: $err');
+      }
+    }
+    super.dispose();
+  }
+
+  Future<void> cancelOrder(String orderId) async {
+    state = state.where((o) => o.id != orderId).toList();
+    if (!PocketBaseConfig.enablePocketBase) return;
+    try {
+      await pb.collection('orders').delete(orderId);
+      final adminName = ref.read(authProvider).currentUser?.name ?? 'Pembeli';
+      await PocketBaseConfig.logActivity(
+        title: 'Membatalkan pesanan #$orderId',
+        icon: 'cancel',
+        admin: adminName,
+      );
+    } catch (e) {
+      debugPrint('Error deleting/cancelling order in PocketBase: $e');
     }
   }
 
@@ -475,15 +585,24 @@ class OrderListNotifier extends StateNotifier<List<OrderModel>> {
         body: {
           'id': order.id,
           'items': order.items.map((item) => item.toJson()).toList(),
-          'status': 'Pending', // Initial status set to Pending
-          'buyerName': order.recipientName, // Map to buyerName
-          'buyerPhone': order.recipientPhone, // Map to buyerPhone
+          'status': 'Pending',
+          'buyerName': order.recipientName,
+          'buyerPhone': order.recipientPhone,
           'shippingAddress': order.shippingAddress,
           'paymentMethod': order.paymentMethod.contains('E-Wallet') || order.paymentMethod.contains('QRIS')
               ? 'E-Wallet'
-              : 'Transfer Bank', // Map to validated PocketBase select options
-          'totalAmount': order.totalInvoice.toInt(), // Map to totalAmount
+              : 'Transfer Bank',
+          'totalAmount': order.totalInvoice.toInt(),
           'discount': order.discount.toInt(),
+          // New shipping fields
+          'shippingFee': order.shippingFee.toInt(),
+          'courierName': order.courierName,
+          'courierService': order.courierService,
+          'courierEta': order.courierEta,
+          'trackingNumber': order.trackingNumber,
+          'postalCode': order.postalCode,
+          'destinationCity': order.destinationCity,
+          'courierProgress': order.courierProgress,
         },
       );
 
@@ -526,16 +645,22 @@ class OrderListNotifier extends StateNotifier<List<OrderModel>> {
     if (!PocketBaseConfig.enablePocketBase) return null;
     
     try {
+      // Read the current user UID to link order ownership securely
+      final authState = ref.read(authProvider);
+      final buyerId = authState.currentUser?.uid ?? '';
+
       final record = await pb.collection('orders').create(
         body: {
           'items': items.map((item) => item.toJson()).toList(),
           'status': 'Pending',
           'buyerName': recipientName,
           'buyerPhone': recipientPhone,
+          'buyerId': buyerId,
           'shippingAddress': shippingAddress,
-          'paymentMethod': 'E-Wallet', // Valid value: 'Transfer Bank' or 'E-Wallet'
+          'paymentMethod': 'E-Wallet',
           'totalAmount': totalInvoice.toInt(),
           'discount': discount.toInt(),
+          'shippingFee': shippingFee.toInt(),
           'payment_status': 'pending_payment',
         },
       );
@@ -572,7 +697,7 @@ class OrderListNotifier extends StateNotifier<List<OrderModel>> {
     state = [order, ...state];
   }
 
-  Future<void> updateOrderStatus(String orderId, String newStatus, {String? paymentMethod}) async {
+  Future<void> updateOrderStatus(String orderId, String newStatus, {String? paymentMethod, String? paymentStatus}) async {
     state = [
       for (final order in state)
         if (order.id == orderId)
@@ -599,8 +724,20 @@ class OrderListNotifier extends StateNotifier<List<OrderModel>> {
         'status': pbStatus,
       };
 
+      if (paymentStatus != null) {
+        body['payment_status'] = paymentStatus;
+        if (paymentStatus == 'paid') {
+          body['paid_at'] = DateTime.now().toUtc().toIso8601String();
+        }
+      }
+
       if (paymentMethod != null) {
-        body['paymentMethod'] = paymentMethod.contains('E-Wallet') || paymentMethod.contains('QRIS')
+        body['paymentMethod'] = paymentMethod.toLowerCase().contains('wallet') || 
+                                paymentMethod.toLowerCase().contains('qris') ||
+                                paymentMethod.toLowerCase().contains('gopay') ||
+                                paymentMethod.toLowerCase().contains('ovo') ||
+                                paymentMethod.toLowerCase().contains('dana') ||
+                                paymentMethod.toLowerCase().contains('shopee')
             ? 'E-Wallet'
             : 'Transfer Bank'; // Map to validated PocketBase select options
       }
@@ -609,6 +746,42 @@ class OrderListNotifier extends StateNotifier<List<OrderModel>> {
         orderId,
         body: body,
       );
+
+      final adminName = ref.read(authProvider).currentUser?.name ?? 'System';
+      final order = state.firstWhere(
+        (o) => o.id == orderId,
+        orElse: () => OrderModel(
+          id: orderId,
+          items: const [],
+          status: newStatus,
+          orderDate: DateTime.now(),
+          recipientName: 'Pembeli Kartara',
+          recipientPhone: '',
+          shippingAddress: '',
+          paymentMethod: paymentMethod ?? 'COD',
+          subtotal: 0.0,
+          shippingFee: 0.0,
+          discount: 0.0,
+          totalInvoice: 0.0,
+        ),
+      );
+      
+      final cleanOrderNumber = order.id.replaceAll('ORD-', '').replaceAll('#', '');
+      final displayNum = cleanOrderNumber.length > 6 ? cleanOrderNumber.substring(cleanOrderNumber.length - 6) : cleanOrderNumber;
+      final formattedTotal = 'Rp ${order.totalInvoice.toStringAsFixed(0)}';
+
+      String activityTitle = 'Memproses pesanan #KT-$displayNum senilai $formattedTotal';
+      if (newStatus == 'selesai') {
+        activityTitle = 'Menyelesaikan pesanan #KT-$displayNum senilai $formattedTotal';
+      } else if (newStatus == 'dikirim') {
+        activityTitle = 'Mengirimkan pesanan #KT-$displayNum senilai $formattedTotal';
+      }
+
+      await PocketBaseConfig.logActivity(
+        title: activityTitle,
+        icon: 'check_circle',
+        admin: adminName,
+      );
     } catch (e) {
       debugPrint('Error updating order status in database: $e');
     }
@@ -616,6 +789,8 @@ class OrderListNotifier extends StateNotifier<List<OrderModel>> {
 }
 
 final ordersProvider = StateNotifierProvider<OrderListNotifier, List<OrderModel>>((ref) {
+  // Watch authProvider so this provider is rebuilt when auth state changes (login, logout, account switch)
+  ref.watch(authProvider);
   return OrderListNotifier(ref);
 });
 

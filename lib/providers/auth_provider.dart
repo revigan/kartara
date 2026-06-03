@@ -96,6 +96,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         final cachedRole = prefs.getString('saved_role');
         final cachedAddress = prefs.getString('saved_address');
         final cachedAvatar = prefs.getString('saved_avatar') ?? '';
+        final cachedPostalCode = prefs.getString('saved_postal_code') ?? '';
 
         if (cachedUid != null && cachedName != null && cachedPhone != null && cachedRole != null && cachedAddress != null) {
           // Masuk secara instan menggunakan cache lokal (mencegah layar login berkedip)
@@ -109,6 +110,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
               role: cachedRole,
               address: cachedAddress,
               avatar: cachedAvatar,
+              postalCode: cachedPostalCode,
             ),
             isLoading: false,
             errorMessage: null,
@@ -127,6 +129,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
         final cachedRole = prefs.getString('saved_role');
         final cachedAddress = prefs.getString('saved_address');
         final cachedAvatar = prefs.getString('saved_avatar') ?? '';
+        final cachedPostalCode = prefs.getString('saved_postal_code') ?? '';
 
         if (cachedUid != null && cachedName != null && cachedPhone != null && cachedRole != null && cachedAddress != null) {
           state = AuthState(
@@ -139,6 +142,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
               role: cachedRole,
               address: cachedAddress,
               avatar: cachedAvatar,
+              postalCode: cachedPostalCode,
             ),
             isLoading: false,
             errorMessage: null,
@@ -180,6 +184,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             : record.getStringValue('role'),
         address: record.getStringValue('address'),
         avatar: record.getStringValue('avatar'),
+        postalCode: record.getStringValue('postalCode'),
       );
 
       // Simpan sesi login ke penyimpanan lokal
@@ -192,6 +197,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await prefs.setString('saved_role', user.role);
       await prefs.setString('saved_address', user.address);
       await prefs.setString('saved_avatar', user.avatar);
+      await prefs.setString('saved_postal_code', user.postalCode);
       await prefs.setBool('has_password', true); // User punya password
 
       state = AuthState(
@@ -267,6 +273,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
             : record.getStringValue('role'),
         address: record.getStringValue('address'),
         avatar: record.getStringValue('avatar'),
+        postalCode: record.getStringValue('postalCode'),
       );
 
       // Save session locally
@@ -278,6 +285,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
       await prefs.setString('saved_role', user.role);
       await prefs.setString('saved_address', user.address);
       await prefs.setString('saved_avatar', user.avatar);
+      await prefs.setString('saved_postal_code', user.postalCode);
       await prefs.setBool('has_password', false); // User login via Google, belum punya password
 
       state = AuthState(
@@ -303,6 +311,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
+  /// Langkah 1 registrasi: kirim OTP ke email pembeli.
+  /// Backend menyimpan data user sementara dan mengirim email OTP.
+  /// Akun PocketBase belum dibuat sampai OTP diverifikasi.
   Future<bool> register({
     required String name,
     required String email,
@@ -314,62 +325,110 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
     try {
       final trimmedEmail = email.trim().toLowerCase();
-      
-      // Buat username acak valid untuk PocketBase
-      final randomString = DateTime.now().millisecondsSinceEpoch.toString().substring(8);
-      final cleanName = name.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toLowerCase();
-      final username = '${cleanName.substring(0, min(8, cleanName.length))}_$randomString';
 
-      final body = {
-        'username': username,
-        'email': trimmedEmail,
-        'emailVisibility': true,
-        'password': password,
-        'passwordConfirm': password,
-        'name': name.trim(),
-        'phone': phone.trim(),
-        'role': role == 'buyer' ? 'pembeli' : role,
-        'address': '', // Default empty as requested
-        'avatar': '',
-      };
-
-      // Buat record baru
-      await pb.collection('users').create(body: body);
-
-      state = AuthState(
-        isAuthenticated: false,
-        currentUser: null,
-        isLoading: false,
-        errorMessage: null,
-        isUsingFallback: false,
-        registeredEmail: trimmedEmail,
-        registeredPassword: password,
-        hasPassword: true, // User register dengan password
+      // Panggil backend untuk generate & kirim OTP ke email
+      final response = await http.post(
+        Uri.parse('${_backendBaseUrl()}/send-register-otp'),
+        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
+        body: jsonEncode({
+          'name': name.trim(),
+          'email': trimmedEmail,
+          'phone': phone.trim(),
+          'password': password,
+          'role': role,
+        }),
       );
-      return true;
-    } catch (e) {
-      // Tampilkan pesan error resmi dari server PocketBase
-      String msg = 'Gagal melakukan pendaftaran. Periksa koneksi Anda.';
-      if (e is ClientException) {
-        final map = e.response['data'] as Map<String, dynamic>?;
-        if (map != null && map.isNotEmpty) {
-          final firstError = map.values.first;
-          if (firstError is Map && firstError.containsKey('message')) {
-            msg = firstError['message'].toString();
-          } else if (firstError is String) {
-            msg = firstError;
-          }
-        } else {
-          msg = e.response['message'] ?? msg;
-        }
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200 && body['success'] == true) {
+        // Simpan email & password sementara untuk dipakai setelah OTP diverifikasi
+        state = AuthState(
+          isAuthenticated: false,
+          currentUser: null,
+          isLoading: false,
+          errorMessage: null,
+          isUsingFallback: false,
+          registeredEmail: trimmedEmail,
+          registeredPassword: password,
+          hasPassword: true,
+        );
+        return true;
+      } else {
+        final msg = body['error'] ?? body['message'] ?? 'Gagal mengirim OTP registrasi';
+        state = state.copyWith(isLoading: false, errorMessage: msg, isUsingFallback: false);
+        return false;
       }
-      state = state.copyWith(
-        isLoading: false,
-        errorMessage: msg,
-        isUsingFallback: false,
-      );
+    } catch (e) {
+      String msg = 'Gagal melakukan pendaftaran. Periksa koneksi Anda.';
+      state = state.copyWith(isLoading: false, errorMessage: msg, isUsingFallback: false);
       return false;
     }
+  }
+
+  /// Langkah 2 registrasi: verifikasi OTP dan buat akun PocketBase.
+  Future<bool> verifyRegisterOtp(String email, String otp) async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+    try {
+      final response = await http.post(
+        Uri.parse('${_backendBaseUrl()}/verify-register-otp'),
+        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
+        body: jsonEncode({'email': email.trim().toLowerCase(), 'otp': otp.trim()}),
+      );
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200 && body['success'] == true) {
+        final password = state.registeredPassword;
+        if (password != null) {
+          // Lakukan login otomatis
+          final loggedIn = await login(email, password);
+          if (loggedIn) {
+            clearRegisteredCredentials();
+            return true;
+          }
+        }
+        // Fallback jika password tidak ditemukan
+        state = state.copyWith(isLoading: false, errorMessage: null);
+        return true;
+      } else {
+        final msg = body['error'] ?? body['message'] ?? 'Kode OTP tidak valid';
+        state = state.copyWith(isLoading: false, errorMessage: msg);
+        return false;
+      }
+    } catch (e) {
+      state = state.copyWith(isLoading: false, errorMessage: 'Gagal verifikasi OTP: ${e.toString()}');
+      return false;
+    }
+  }
+
+  /// Kirim ulang OTP registrasi tanpa perlu data user lagi (data masih di backend store).
+  Future<bool> resendRegisterOtp(String email) async {
+    try {
+      final response = await http.post(
+        Uri.parse('${_backendBaseUrl()}/resend-register-otp'),
+        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
+        body: jsonEncode({'email': email.trim().toLowerCase()}),
+      );
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200 && body['success'] == true) {
+        return true;
+      } else {
+        state = state.copyWith(errorMessage: body['error'] ?? 'Gagal kirim ulang OTP');
+        return false;
+      }
+    } catch (e) {
+      state = state.copyWith(errorMessage: 'Gagal kirim ulang OTP: ${e.toString()}');
+      return false;
+    }
+  }
+
+  /// Mengembalikan base URL backend (ngrok atau localhost).
+  String _backendBaseUrl() {
+    // Gunakan localhost saat desktop/web, ngrok untuk akses dari emulator/device
+    return 'http://localhost:3000/api';
   }
 
   Future<bool> requestPasswordReset(String email) async {
@@ -378,34 +437,30 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // Generate 6-digit OTP
       final random = Random();
       final otp = (100000 + random.nextInt(900000)).toString();
-      
-      print('Generated OTP for $email: $otp'); // Debug log
-      
-      // Save OTP and timestamp to SharedPreferences
+
+      // Save OTP and timestamp to SharedPreferences for local verification
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('reset_otp', otp);
       await prefs.setString('reset_email', email.trim().toLowerCase());
       await prefs.setInt('reset_otp_timestamp', DateTime.now().millisecondsSinceEpoch);
-      
-      // Send OTP via email using PocketBase hook
-      bool emailSent = false;
+
+      // Kirim OTP via backend Node.js (nodemailer)
       try {
-        emailSent = await sendOtpViaPocketBaseHook(
-          email: email.trim().toLowerCase(),
-          otp: otp,
+        final response = await http.post(
+          Uri.parse('${_backendBaseUrl()}/send-reset-otp'),
+          headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
+          body: jsonEncode({'email': email.trim().toLowerCase(), 'otp': otp}),
         );
-        print('Email sent via PocketBase hook: $emailSent'); // Debug log
-      } catch (e) {
-        print('PocketBase hook failed: $e');
+        final respBody = jsonDecode(response.body) as Map<String, dynamic>;
+        if (response.statusCode == 200 && respBody['success'] == true) {
+          print('[OTP] ✅ Reset OTP sent via backend to $email');
+        } else {
+          print('[OTP] ⚠️ Backend returned: ${respBody['error']}');
+        }
+      } catch (sendErr) {
+        print('[OTP] ⚠️ Backend email failed, OTP saved locally: $otp');
       }
-      
-      // If PocketBase hook fails, try Gmail SMTP (if configured)
-      if (!emailSent) {
-        print('OTP for testing: $otp');
-        // Email sending failed, but OTP is saved for testing
-        // In production, you should return false here
-      }
-      
+
       state = state.copyWith(isLoading: false);
       return true;
     } catch (e) {
@@ -578,7 +633,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  Future<bool> updateAddress(String newAddress) async {
+  Future<bool> updateAddress(String newAddress, String newPostalCode) async {
     state = state.copyWith(isLoading: true, errorMessage: null);
     try {
       final user = state.currentUser;
@@ -587,15 +642,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
       if (PocketBaseConfig.enablePocketBase) {
         await pb.collection('users').update(user.uid, body: {
           'address': newAddress.trim(),
+          'postalCode': newPostalCode.trim(),
         });
       }
 
       final updatedUser = user.copyWith(
         address: newAddress.trim(),
+        postalCode: newPostalCode.trim(),
       );
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('saved_address', updatedUser.address);
+      await prefs.setString('saved_postal_code', updatedUser.postalCode);
 
       state = state.copyWith(
         currentUser: updatedUser,

@@ -6,6 +6,7 @@ class UserModel {
   final String role; // 'buyer' or 'admin'
   final String address;
   final String avatar;
+  final String postalCode;
 
   UserModel({
     required this.uid,
@@ -15,6 +16,7 @@ class UserModel {
     required this.role,
     required this.address,
     this.avatar = '',
+    this.postalCode = '',
   });
 
   UserModel copyWith({
@@ -25,6 +27,7 @@ class UserModel {
     String? role,
     String? address,
     String? avatar,
+    String? postalCode,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -34,6 +37,7 @@ class UserModel {
       role: role ?? this.role,
       address: address ?? this.address,
       avatar: avatar ?? this.avatar,
+      postalCode: postalCode ?? this.postalCode,
     );
   }
 
@@ -46,6 +50,7 @@ class UserModel {
       'role': role,
       'address': address,
       'avatar': avatar,
+      'postalCode': postalCode,
     };
   }
 
@@ -58,6 +63,7 @@ class UserModel {
       role: map['role'] ?? 'buyer',
       address: map['address'] ?? '',
       avatar: map['avatar'] ?? '',
+      postalCode: map['postalCode'] ?? '',
     );
   }
 }

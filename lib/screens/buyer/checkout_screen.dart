@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import '../../config/app_config.dart';
 import '../../providers/app_state.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/order.dart';
@@ -24,8 +25,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 
   bool _isProcessing = false;
   Coupon? _selectedCoupon;
-  String _selectedCourier = 'J&T Express';
-  double _shippingFee = 10000.0;
+  String _selectedCourier = 'Kartara Instant';
+  double _shippingFee = 0.0;
+  String _selectedCourierEta = '1-3 hari';
+  String _selectedCourierService = 'Reguler';
 
   final _postalCodeController = TextEditingController();
   final _addressFocusNode = FocusNode();
@@ -36,6 +39,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   bool _isLoadingShipping = false;
   String? _destinationInfo;
   int? _distanceKm;
+  String _shippingSource = 'idle';
+  String? _shippingError;
 
   @override
   void initState() {
@@ -49,7 +54,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         _nameController.text = authState.currentUser!.name;
         _phoneController.text = authState.currentUser!.phone;
         _addressController.text = authState.currentUser!.address;
-        _postalCodeController.text = '59411'; // default Jepara
+        _postalCodeController.text = authState.currentUser!.postalCode.isNotEmpty
+            ? authState.currentUser!.postalCode
+            : '59411';
         _calculateShipping();
       }
     });
@@ -73,17 +80,15 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       _selectedCourierOption = null;
       _destinationInfo = null;
       _distanceKm = null;
+      _shippingSource = 'loading';
     });
 
     try {
       final dio = Dio(BaseOptions(
-        baseUrl: 'https://surfboard-hardcopy-context.ngrok-free.dev/api',
-        connectTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 15),
-        headers: {
-          'ngrok-skip-browser-warning': 'true',
-          'Content-Type': 'application/json',
-        },
+        baseUrl: AppConfig.apiBaseUrl,
+        connectTimeout: AppConfig.connectTimeout,
+        receiveTimeout: AppConfig.receiveTimeout,
+        headers: AppConfig.defaultHeaders,
       ));
 
       final response = await dio.post('/shipping/calculate', data: {
@@ -97,24 +102,35 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
         final parsedCouriers = rawCouriers.map((json) => ShippingCourier.fromJson(json)).toList();
         final String? destination = response.data['destination'];
         final int? distance = response.data['distanceKm'];
+        final String src = response.data['source'] ?? 'smart_calculation';
 
         setState(() {
           _courierOptions = parsedCouriers;
           _destinationInfo = destination;
           _distanceKm = distance;
+          _shippingSource = src;
           if (_courierOptions.isNotEmpty) {
             _selectedCourierOption = _courierOptions.first;
             _selectedCourier = _selectedCourierOption!.name;
             _shippingFee = _selectedCourierOption!.fee;
+            _selectedCourierEta = _selectedCourierOption!.eta;
+            _selectedCourierService = _selectedCourierOption!.desc.contains('Ekspres') ? 'Ekspres' : 'Reguler';
           }
           _isLoadingShipping = false;
+          _shippingError = null;
         });
       } else {
-        setState(() => _isLoadingShipping = false);
+        setState(() {
+          _isLoadingShipping = false;
+          _shippingError = 'Server tidak dapat menghitung ongkir.';
+        });
       }
     } catch (e) {
       debugPrint('Error calculating shipping costs: $e');
-      setState(() => _isLoadingShipping = false);
+      setState(() {
+        _isLoadingShipping = false;
+        _shippingError = 'Tidak dapat terhubung ke server. Periksa koneksi internet.';
+      });
     }
   }
 
@@ -188,17 +204,52 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       return;
     }
 
-    // Set dynamic courier properties based on selected shipping method
-    String courierName = 'Rudi Santoso';
+    // Sync user profile details in PocketBase and locally if they differ or are empty.
+    // NOTE: updateProfile/updateAddress mutate authState which causes ordersProvider to
+    // be torn down and recreated by Riverpod. We must re-read ordersProvider.notifier
+    // AFTER the sync so we never call addOrderToState on a disposed notifier.
+    final authState = ref.read(authProvider);
+    if (authState.currentUser != null) {
+      final curUser = authState.currentUser!;
+      final newPhone = _phoneController.text.trim();
+      final newAddress = _addressController.text.trim();
+      final newPostalCode = _postalCodeController.text.trim();
+      final newName = _nameController.text.trim();
+
+      if (curUser.phone != newPhone || curUser.name != newName) {
+        try {
+          await ref.read(authProvider.notifier).updateProfile(
+            name: newName,
+            phone: newPhone,
+          );
+        } catch (e) {
+          debugPrint('Error syncing profile name/phone: $e');
+        }
+      }
+
+      if (curUser.address != newAddress || curUser.postalCode != newPostalCode) {
+        try {
+          await ref.read(authProvider.notifier).updateAddress(
+            newAddress,
+            newPostalCode,
+          );
+        } catch (e) {
+          debugPrint('Error syncing profile address/postalCode: $e');
+        }
+      }
+    }
+
+    // Generate tracking number
+    final trackingNumber = 'KTR-${pocketbaseOrderId.substring(0, 8).toUpperCase()}';
+
+    // Determine courier vehicle from courier name
     String courierVehicle = 'Honda Supra • K 4812 JT';
     int etaMinutes = 25;
 
-    if (_selectedCourier == 'JNE Reguler') {
-      courierName = 'Budi Wijaya';
+    if (_selectedCourier.contains('JNE')) {
       courierVehicle = 'Yamaha Mio • K 9283 JN';
       etaMinutes = 20;
-    } else if (_selectedCourier == 'Kartara Instant') {
-      courierName = 'Ahmad Faisal';
+    } else if (_selectedCourier.contains('Instant')) {
       courierVehicle = 'Honda Vario • K 1234 XY';
       etaMinutes = 15;
     }
@@ -216,17 +267,28 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       shippingFee: shippingFee,
       discount: discount,
       totalInvoice: totalInvoice,
-      courierName: courierName,
+      courierName: _selectedCourier,
       courierVehicle: courierVehicle,
       etaMinutes: etaMinutes,
+      courierService: _selectedCourierService,
+      courierEta: _selectedCourierEta,
+      trackingNumber: trackingNumber,
+      postalCode: _postalCodeController.text.trim(),
+      destinationCity: _destinationInfo ?? '',
+      courierProgress: 0.3,
     );
 
-    ordersNotifier.addOrderToState(order);
-    cartNotifier.clearSelectedItems();
+    // After profile sync, ordersProvider may have already been rebuilt by Riverpod
+    // and loadOrders() re-fetched the new order from PocketBase.
+    // Calling addOrderToState would duplicate the order in state.
+    // Instead, call loadOrders() to ensure state is fresh without duplicates.
+    if (!mounted) return;
+    await ref.read(ordersProvider.notifier).loadOrders();
+    ref.read(cartProvider.notifier).clearSelectedItems();
 
     if (mounted) {
       setState(() => _isProcessing = false);
-      navNotifier.navigateToBuyer('payment', order: order);
+      ref.read(navigationProvider.notifier).navigateToBuyer('payment', order: order);
     }
   }
 
@@ -317,30 +379,22 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   const SizedBox(height: 24),
                   _buildSectionTitle('Pilihan Pengiriman'),
                   const SizedBox(height: 12),
-                  if (_isLoadingShipping)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: 20.0),
-                        child: Column(
-                          children: [
-                            CircularProgressIndicator(color: Color(0xFFC0430E)),
-                            SizedBox(height: 8),
-                            Text('Menghitung ongkos kirim...', style: TextStyle(fontSize: 12, color: Color(0xFF6B5E52))),
-                          ],
-                        ),
-                      ),
-                    )
-                  else
-                    ShippingCostCard(
+                  ShippingCostCard(
                       couriers: _courierOptions,
                       selectedCourier: _selectedCourierOption,
                       destinationInfo: _destinationInfo,
                       distanceKm: _distanceKm,
+                      isLoading: _isLoadingShipping,
+                      errorMessage: _shippingError,
+                      source: _shippingSource,
+                      onRetry: _calculateShipping,
                       onCourierSelected: (courier) {
                         setState(() {
                           _selectedCourierOption = courier;
                           _selectedCourier = courier.name;
                           _shippingFee = courier.fee;
+                          _selectedCourierEta = courier.eta;
+                          _selectedCourierService = courier.desc.contains('Ekspres') ? 'Ekspres' : 'Reguler';
                         });
                       },
                     ),

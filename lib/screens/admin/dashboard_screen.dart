@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../providers/app_state.dart';
@@ -27,6 +27,19 @@ class AdminDashboardScreen extends ConsumerWidget {
     final totalProducts = products.length;
     final totalCustomers = customers.length;
 
+    // Tentukan ucapan selamat berdasarkan waktu local
+    final hour = DateTime.now().hour;
+    String greeting;
+    if (hour >= 5 && hour < 11) {
+      greeting = 'Selamat pagi,';
+    } else if (hour >= 11 && hour < 15) {
+      greeting = 'Selamat siang,';
+    } else if (hour >= 15 && hour < 18) {
+      greeting = 'Selamat sore,';
+    } else {
+      greeting = 'Selamat malam,';
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFFAF7F2),
       body: SafeArea(
@@ -38,7 +51,7 @@ class AdminDashboardScreen extends ConsumerWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Icon(Icons.menu, color: Color(0xFF1A1A1A), size: 24),
+                  const SizedBox(width: 36),
                   const Text(
                     'Kartara Admin',
                     style: TextStyle(
@@ -76,9 +89,9 @@ class AdminDashboardScreen extends ConsumerWidget {
                   children: [
                     const SizedBox(height: 8),
                     // Greeting text
-                    const Text(
-                      'Selamat pagi,',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF7C7C7C)),
+                    Text(
+                      greeting,
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF7C7C7C)),
                     ),
                     const SizedBox(height: 2),
                     Text(

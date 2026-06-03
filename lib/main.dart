@@ -10,6 +10,7 @@ import 'providers/auth_provider.dart';
 
 // Widgets & Bezel Frame
 import 'widgets/device_frame.dart';
+import 'widgets/buyer_bottom_nav_bar.dart';
 
 // Auth Screens
 import 'screens/auth/splash_screen.dart';
@@ -102,6 +103,16 @@ class _AppEntryNavigatorState extends ConsumerState<AppEntryNavigator> {
         },
       );
     }
+
+    ref.listen<AuthState>(authProvider, (previous, next) {
+      if (previous != null && previous.isAuthenticated && !next.isAuthenticated) {
+        setState(() {
+          _showRegister = false;
+        });
+        ref.read(navigationProvider.notifier).reset();
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    });
 
     final authState = ref.watch(authProvider);
 
@@ -290,23 +301,35 @@ class _MainNavigatorState extends ConsumerState<MainNavigator> {
     }
 
     // Wrap the screen inside the smartphone frame wrapper with role switchers enabled!
+    final bool showBottomNav = navState.role == 'buyer' && 
+        ['home', 'history', 'assistant', 'profile'].contains(navState.buyerScreen);
+
+    Widget mainWidget = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      switchInCurve: Curves.easeInOut,
+      switchOutCurve: Curves.easeInOut,
+      transitionBuilder: (child, animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: child,
+        );
+      },
+      child: KeyedSubtree(
+        key: ValueKey('${navState.role}_${navState.role == 'buyer' ? navState.buyerScreen : navState.adminScreen}'),
+        child: activeScreen,
+      ),
+    );
+
+    if (showBottomNav) {
+      mainWidget = Scaffold(
+        body: mainWidget,
+        bottomNavigationBar: const BuyerBottomNavBar(),
+      );
+    }
+
     return DeviceFrameWrapper(
       showControls: true,
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 300),
-        switchInCurve: Curves.easeInOut,
-        switchOutCurve: Curves.easeInOut,
-        transitionBuilder: (child, animation) {
-          return FadeTransition(
-            opacity: animation,
-            child: child,
-          );
-        },
-        child: KeyedSubtree(
-          key: ValueKey('${navState.role}_${navState.role == 'buyer' ? navState.buyerScreen : navState.adminScreen}'),
-          child: activeScreen,
-        ),
-      ),
+      child: mainWidget,
     );
   }
 }

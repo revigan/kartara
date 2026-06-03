@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../config/app_config.dart';
 import '../../providers/app_state.dart';
 import '../../providers/payment_provider.dart';
 import '../../providers/auth_provider.dart';
@@ -21,274 +23,21 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   String _selectedMethod = 'Midtrans'; // 'Midtrans', 'COD' or 'Transfer Bank'
   bool _isProcessing = false;
   bool _showWebView = false;
+  bool _waitingForPayment = false; // Full-screen waiting state for Web tab flow
   WebViewController? _webViewController;
   Timer? _pollTimer;
 
+  // Simpan referensi agar bisa dipakai di WebView callback
+  dynamic _ordersNotifier;
+  dynamic _navNotifier;
+
   Future<void> _processPayment(OrderModel order, dynamic ordersNotifier, dynamic navNotifier) async {
     setState(() => _isProcessing = true);
-
     if (_selectedMethod == 'Midtrans') {
-      // Process Midtrans payment
       await _processMidtransPayment(order, ordersNotifier, navNotifier);
     } else {
-      // Process COD or Transfer Bank
       await _processManualPayment(order, ordersNotifier, navNotifier);
     }
-  }
-
-  Future<void> _processMidtransPayment(OrderModel order, dynamic ordersNotifier, dynamic navNotifier) async {
-    final paymentNotifier = ref.read(paymentProvider.notifier);
-    final authState = ref.read(authProvider);
-
-    // Create Midtrans transaction
-    final success = await paymentNotifier.createTransaction(
-      orderId: order.id,
-      totalAmount: order.totalInvoice,
-      customerName: order.recipientName,
-      customerEmail: authState.currentUser?.email ?? 'customer@kartara.com',
-      customerPhone: order.recipientPhone,
-      items: order.items.map((item) => {
-        'id': item.product.id,
-        'price': item.product.price.round(),
-        'quantity': item.quantity,
-        'name': item.product.name,
-      }).toList(),
-    );
-
-    if (mounted) {
-      setState(() => _isProcessing = false);
-
-      if (success) {
-        final paymentState = ref.read(paymentProvider);
-        if (kIsWeb) {
-          await _openMidtransInNewTab(paymentState.redirectUrl!);
-          if (mounted) {
-            _showWaitingDialog(order, ordersNotifier, navNotifier);
-            _startPolling(order, ordersNotifier, navNotifier);
-          }
-        } else {
-          setState(() => _showWebView = true);
-          _initializeWebView();
-        }
-      } else {
-        final paymentState = ref.read(paymentProvider);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(paymentState.error ?? 'Gagal membuat transaksi'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  void _startPolling(OrderModel order, dynamic ordersNotifier, dynamic navNotifier) {
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
-      try {
-        // Reload orders dari PocketBase langsung
-        await ordersNotifier.loadOrders();
-        final orders = ref.read(ordersProvider);
-        final updated = orders.cast<OrderModel?>().firstWhere(
-          (o) => o?.id == order.id,
-          orElse: () => null,
-        );
-
-        // Cek apakah status sudah berubah menjadi diproses (artinya sudah dibayar)
-        if (updated != null && (updated.status == 'diproses' || updated.status == 'selesai')) {
-          timer.cancel();
-          if (mounted) {
-            if (Navigator.canPop(context)) Navigator.pop(context);
-            showSuccessNotification(context, 'Pembayaran Berhasil! Pesanan sedang diproses.');
-            await Future.delayed(const Duration(milliseconds: 1600));
-            if (mounted) navNotifier.navigateToBuyer('history');
-          }
-        }
-      } catch (e) {
-        debugPrint('Polling error: $e');
-      }
-    });
-  }
-
-  void _showWaitingDialog(OrderModel order, dynamic ordersNotifier, dynamic navNotifier) {
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 8),
-            const CircularProgressIndicator(color: Color(0xFFC0430E), strokeWidth: 3),
-            const SizedBox(height: 20),
-            const Text(
-              'Menunggu Konfirmasi Pembayaran',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Selesaikan pembayaran di tab Midtrans.\nStatus akan otomatis diperbarui.',
-              style: TextStyle(color: Colors.grey[600], fontSize: 13),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFC0430E),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                 onPressed: () async {
-                  Navigator.pop(ctx);
-                  _pollTimer?.cancel();
-                  // Reload dari PocketBase
-                  await ordersNotifier.loadOrders();
-                  final orders = ref.read(ordersProvider);
-                  final updated = orders.cast<OrderModel?>().firstWhere(
-                    (o) => o?.id == order.id,
-                    orElse: () => null,
-                  );
-                  if (updated != null && (updated.status == 'diproses' || updated.status == 'selesai')) {
-                    if (mounted) {
-                      showSuccessNotification(context, 'Pembayaran Berhasil!');
-                      await Future.delayed(const Duration(milliseconds: 1600));
-                      if (mounted) navNotifier.navigateToBuyer('history');
-                    }
-                  } else {
-                    await ordersNotifier.loadOrders();
-                    navNotifier.navigateToBuyer('history');
-                  }
-                },
-                child: const Text('Sudah Bayar? Cek Status', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-            ),
-            TextButton(
-              onPressed: () {
-                _pollTimer?.cancel();
-                Navigator.pop(ctx);
-                navNotifier.navigateToBuyer('history');
-              },
-              child: Text('Ke History', style: TextStyle(color: Colors.grey[600])),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Open Midtrans in new tab for Flutter Web
-  Future<void> _openMidtransInNewTab(String url) async {
-    final Uri uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Tidak dapat membuka halaman pembayaran'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _pollTimer?.cancel();
-    super.dispose();
-  }
-
-  void _initializeWebView() {
-    final paymentState = ref.read(paymentProvider);
-    
-    _webViewController = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (String url) {
-            debugPrint('Page finished loading: $url');
-            
-            // Check if payment is completed
-            if (url.contains('kartara://payment/success')) {
-              _handlePaymentSuccess();
-            } else if (url.contains('kartara://payment/failed')) {
-              _handlePaymentFailed();
-            } else if (url.contains('kartara://payment/pending')) {
-              _handlePaymentPending();
-            }
-          },
-          onNavigationRequest: (NavigationRequest request) {
-            debugPrint('Navigation request: ${request.url}');
-            
-            // Handle deep links
-            if (request.url.startsWith('kartara://')) {
-              if (request.url.contains('/success')) {
-                _handlePaymentSuccess();
-              } else if (request.url.contains('/failed')) {
-                _handlePaymentFailed();
-              } else if (request.url.contains('/pending')) {
-                _handlePaymentPending();
-              }
-              return NavigationDecision.prevent;
-            }
-            
-            return NavigationDecision.navigate;
-          },
-        ),
-      )
-      ..loadRequest(Uri.parse(paymentState.redirectUrl!));
-  }
-
-  void _handlePaymentSuccess() {
-    final navNotifier = ref.read(navigationProvider.notifier);
-    
-    setState(() => _showWebView = false);
-    
-    showSuccessNotification(
-      context,
-      'Pembayaran Berhasil! Pesanan Anda sedang diproses.',
-    );
-    
-    Future.delayed(const Duration(milliseconds: 1600), () {
-      if (mounted) {
-        navNotifier.navigateToBuyer('history');
-      }
-    });
-  }
-
-  void _handlePaymentFailed() {
-    setState(() => _showWebView = false);
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Pembayaran Gagal! Silakan coba lagi.'),
-        backgroundColor: Colors.red,
-      ),
-    );
-  }
-
-  void _handlePaymentPending() {
-    final navNotifier = ref.read(navigationProvider.notifier);
-    
-    setState(() => _showWebView = false);
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Pembayaran Pending. Silakan selesaikan pembayaran Anda.'),
-        backgroundColor: Colors.orange,
-      ),
-    );
-    
-    Future.delayed(const Duration(milliseconds: 1600), () {
-      if (mounted) {
-        navNotifier.navigateToBuyer('history');
-      }
-    });
   }
 
   Future<void> _processManualPayment(OrderModel order, dynamic ordersNotifier, dynamic navNotifier) async {
@@ -323,6 +72,358 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     }
   }
 
+  Future<void> _processMidtransPayment(OrderModel order, dynamic ordersNotifier, dynamic navNotifier) async {
+    final paymentNotifier = ref.read(paymentProvider.notifier);
+    final authState = ref.read(authProvider);
+
+    // Create Midtrans transaction
+    final success = await paymentNotifier.createTransaction(
+      orderId: order.id,
+      totalAmount: order.totalInvoice,
+      customerName: order.recipientName,
+      customerEmail: authState.currentUser?.email ?? 'customer@kartara.com',
+      customerPhone: order.recipientPhone,
+      paymentType: _selectedMethod,
+      items: order.items.map((item) => {
+        'id': item.product.id,
+        'price': item.product.price.round(),
+        'quantity': item.quantity,
+        'name': item.product.name,
+      }).toList(),
+    );
+
+    if (mounted) {
+      setState(() => _isProcessing = false);
+
+      if (success) {
+        final paymentState = ref.read(paymentProvider);
+        if (kIsWeb) {
+          await _openMidtransInNewTab(paymentState.redirectUrl!);
+          if (mounted) {
+            // Show full-screen waiting overlay (cannot be dismissed by accident)
+            setState(() => _waitingForPayment = true);
+            _startPolling(order, ordersNotifier, navNotifier);
+          }
+        } else {
+          setState(() => _showWebView = true);
+          _initializeWebView(ordersNotifier, navNotifier);
+        }
+      } else {
+        final paymentState = ref.read(paymentProvider);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(paymentState.error ?? 'Gagal membuat transaksi'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Cek status pembayaran via backend API (hindari CORS issue di Flutter Web)
+  Future<bool> _checkPaymentPaidViaApi(String orderId) async {
+    try {
+      final dio = Dio(BaseOptions(
+        baseUrl: AppConfig.apiBaseUrl,
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+        headers: AppConfig.defaultHeaders,
+      ));
+      final response = await dio.get('/payment-status/$orderId');
+      if (response.statusCode == 200 && response.data['success'] == true) {
+        final order = response.data['order'];
+        final paymentStatus = order?['payment_status'] as String? ?? '';
+        final txStatus = response.data['transaction_status'] as String? ?? '';
+        debugPrint('💳 Payment poll: payment_status=$paymentStatus, tx=$txStatus');
+        return paymentStatus == 'paid' ||
+               txStatus == 'settlement' ||
+               txStatus == 'capture';
+      }
+    } catch (e) {
+      debugPrint('Payment status check error: $e');
+    }
+    return false;
+  }
+
+  void _startPolling(OrderModel order, dynamic ordersNotifier, dynamic navNotifier) {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      try {
+        final isPaid = await _checkPaymentPaidViaApi(order.id);
+        if (isPaid) {
+          timer.cancel();
+          if (mounted) {
+            // Clear waiting state, refresh orders, navigate to history
+            setState(() => _waitingForPayment = false);
+            await ref.read(ordersProvider.notifier).loadOrders();
+            ref.read(navigationProvider.notifier).navigateToBuyer('history');
+            showSuccessNotification(context, 'Pembayaran Berhasil! Pesanan sedang diproses.');
+          }
+        }
+      } catch (e) {
+        debugPrint('Polling error: $e');
+      }
+    });
+  }
+
+  /// Full-screen waiting overlay, shown instead of a dismissible dialog.
+  Widget _buildWaitingOverlay(OrderModel order) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F1ED),
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF0E6),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.payment, color: Color(0xFFC0430E), size: 40),
+                ),
+                const SizedBox(height: 28),
+                const Text(
+                  'Menunggu Pembayaran',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Color(0xFF2C2C2C)),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Selesaikan pembayaran di tab Midtrans.\nApp akan otomatis berpindah ke riwayat pesanan.',
+                  style: TextStyle(color: Colors.grey[600], fontSize: 14, height: 1.5),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                const CircularProgressIndicator(
+                  color: Color(0xFFC0430E),
+                  strokeWidth: 2.5,
+                ),
+                const SizedBox(height: 32),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFC0430E),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    ),
+                    onPressed: () async {
+                      final isPaid = await _checkPaymentPaidViaApi(order.id);
+                      if (isPaid) {
+                        _pollTimer?.cancel();
+                        if (mounted) {
+                          setState(() => _waitingForPayment = false);
+                          await ref.read(ordersProvider.notifier).loadOrders();
+                          ref.read(navigationProvider.notifier).navigateToBuyer('history');
+                          showSuccessNotification(context, 'Pembayaran Berhasil!');
+                        }
+                      } else {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Pembayaran belum terkonfirmasi. Silakan tunggu...'),
+                              backgroundColor: Colors.orange,
+                            ),
+                          );
+                        }
+                      }
+                    },
+                    child: const Text(
+                      'Sudah Bayar? Cek Status',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () {
+                    _pollTimer?.cancel();
+                    setState(() => _waitingForPayment = false);
+                    ref.read(navigationProvider.notifier).navigateToBuyer('history');
+                  },
+                  child: Text('Ke Riwayat Pesanan', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Open Midtrans in new tab for Flutter Web
+  Future<void> _openMidtransInNewTab(String url) async {
+    final Uri uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tidak dapat membuka halaman pembayaran'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  void _initializeWebView(dynamic ordersNotifier, dynamic navNotifier) {
+    final paymentState = ref.read(paymentProvider);
+
+    // Simpan referensi untuk dipakai di callback
+    _ordersNotifier = ordersNotifier;
+    _navNotifier = navNotifier;
+
+    _webViewController = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent('Mozilla/5.0 KartaraApp/1.0')
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (String url) {
+            debugPrint('✅ WebView page finished: $url');
+
+            // Deteksi URL callback dari backend (ngrok/server)
+            if (url.contains('/success') || url.contains('order_id') && url.contains('finish')) {
+              _handlePaymentSuccess();
+            } else if (url.contains('/failed') || url.contains('order_id') && url.contains('error')) {
+              _handlePaymentFailed();
+            } else if (url.contains('/pending')) {
+              _handlePaymentPending();
+            }
+          },
+          onNavigationRequest: (NavigationRequest request) {
+            debugPrint('🔗 Navigation request: ${request.url}');
+
+            // Handle deep links kartara://
+            if (request.url.startsWith('kartara://')) {
+              if (request.url.contains('/success')) {
+                _handlePaymentSuccess();
+              } else if (request.url.contains('/failed')) {
+                _handlePaymentFailed();
+              } else if (request.url.contains('/pending')) {
+                _handlePaymentPending();
+              }
+              return NavigationDecision.prevent;
+            }
+
+            // Deteksi redirect ke URL backend /success, /failed, /pending
+            final isCallbackUrl = request.url.contains('/success') ||
+                request.url.contains('/failed') ||
+                request.url.contains('/pending') ||
+                request.url.contains('finish?') ||
+                request.url.contains('error?');
+
+            if (isCallbackUrl) {
+              if (request.url.contains('success') || request.url.contains('finish')) {
+                _handlePaymentSuccess();
+              } else if (request.url.contains('failed') || request.url.contains('error')) {
+                _handlePaymentFailed();
+              } else if (request.url.contains('pending')) {
+                _handlePaymentPending();
+              }
+              return NavigationDecision.prevent;
+            }
+
+            // Intercept navigations to ngrok URLs and reload with bypass header.
+            // The loadRequest header is only applied to the first request;
+            // subsequent redirects inside the WebView lose it.
+            // By intercepting here and calling loadRequest again with the header,
+            // we guarantee the ngrok warning page is never shown.
+            final isNgrokUrl = request.url.contains('ngrok-free.app') ||
+                request.url.contains('ngrok-free.dev') ||
+                request.url.contains('ngrok.io') ||
+                request.url.contains('ngrok.app');
+            if (isNgrokUrl) {
+              debugPrint('🔑 Injecting ngrok-skip-browser-warning for: ${request.url}');
+              _webViewController?.loadRequest(
+                Uri.parse(request.url),
+                headers: const {
+                  'ngrok-skip-browser-warning': 'true',
+                  'User-Agent': 'Mozilla/5.0 KartaraApp/1.0',
+                },
+              );
+              return NavigationDecision.prevent;
+            }
+
+            return NavigationDecision.navigate;
+          },
+        ),
+      )
+      ..loadRequest(
+        Uri.parse(paymentState.redirectUrl!),
+        headers: const {'ngrok-skip-browser-warning': 'true'},
+      );
+  }
+
+  void _handlePaymentSuccess() {
+    if (!mounted) return;
+    // Tutup WebView, kembali ke halaman pembayaran
+    setState(() => _showWebView = false);
+
+    // Refresh orders secara langsung
+    _ordersNotifier?.loadOrders();
+
+    // Navigasi langsung tanpa delay
+    _navNotifier?.navigateToBuyer('history');
+
+    showSuccessNotification(
+      context,
+      'Pembayaran Berhasil! Pesanan Anda sedang diproses.',
+    );
+  }
+
+  void _handlePaymentFailed() {
+    if (!mounted) return;
+    // Tutup WebView, kembali ke halaman pembayaran (payment screen)
+    setState(() => _showWebView = false);
+
+    // Refresh orders secara langsung
+    _ordersNotifier?.loadOrders();
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Pembayaran Gagal! Silakan coba lagi.'),
+        backgroundColor: Colors.red,
+        duration: Duration(seconds: 3),
+      ),
+    );
+    // Tetap di halaman payment agar user bisa coba lagi
+  }
+
+  void _handlePaymentPending() {
+    if (!mounted) return;
+    // Tutup WebView, kembali ke halaman pembayaran
+    setState(() => _showWebView = false);
+
+    // Refresh orders secara langsung
+    _ordersNotifier?.loadOrders();
+
+    // Navigasi langsung ke history
+    _navNotifier?.navigateToBuyer('history');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Pembayaran Pending. Selesaikan pembayaran Anda.'),
+        backgroundColor: Colors.orange,
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+
+
   @override
   Widget build(BuildContext context) {
     final navState = ref.watch(navigationProvider);
@@ -353,6 +454,11 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           ),
         ),
       );
+    }
+
+    // Show full-screen waiting overlay for Flutter Web tab payment flow
+    if (_waitingForPayment) {
+      return _buildWaitingOverlay(order);
     }
 
     // Show WebView if payment is being processed
@@ -631,6 +737,8 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       ),
     );
   }
+
+
 
   Widget _buildBankInfo() {
     return Container(

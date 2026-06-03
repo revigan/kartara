@@ -1,6 +1,9 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../config/pocketbase_config.dart';
 import '../../providers/app_state.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/user.dart';
@@ -47,13 +50,35 @@ class AdminProfileScreen extends ConsumerWidget {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(color: const Color(0xFFFFDDCC), width: 2),
-                      image: const DecorationImage(
-                        image: NetworkImage(
-                          'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80',
-                        ),
-                        fit: BoxFit.cover,
-                      ),
+                      gradient: user == null || user.avatar.isEmpty
+                          ? const LinearGradient(
+                              colors: [Color(0xFFC0430E), Color(0xFFD4601A)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            )
+                          : null,
+                      image: user != null && user.avatar.isNotEmpty
+                          ? DecorationImage(
+                              image: NetworkImage(
+                                "${PocketBaseConfig.baseUrl}/api/files/_pb_users_auth_/${user.uid}/${user.avatar}",
+                              ),
+                              fit: BoxFit.cover,
+                            )
+                          : null,
                     ),
+                    child: user == null || user.avatar.isEmpty
+                        ? Center(
+                            child: Text(
+                              _getInitials(user?.name ?? 'Admin Kartara'),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 24,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          )
+                        : null,
                   ),
                   const SizedBox(width: 16),
 
@@ -125,14 +150,7 @@ class AdminProfileScreen extends ConsumerWidget {
                       _showBottomSheet(context, const ChangePasswordSheet());
                     },
                   ),
-                  _buildAdminOption(
-                    context: context,
-                    icon: Icons.storefront_outlined,
-                    label: 'Pengaturan Toko',
-                    onTap: () {
-                      _showBottomSheet(context, const ShopSettingsSheet());
-                    },
-                  ),
+
                   _buildAdminOption(
                     context: context,
                     icon: Icons.group_outlined,
@@ -347,6 +365,9 @@ class _EditProfileSheetState extends ConsumerState<EditProfileSheet> {
   late TextEditingController _phoneController;
   bool _isLoading = false;
 
+  List<int>? _selectedImageBytes;
+  String? _selectedImageFilename;
+
   @override
   void initState() {
     super.initState();
@@ -364,8 +385,89 @@ class _EditProfileSheetState extends ConsumerState<EditProfileSheet> {
     super.dispose();
   }
 
+  Future<void> _pickImage() async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 500,
+        maxHeight: 500,
+        imageQuality: 80,
+      );
+      if (picked != null) {
+        final bytes = await picked.readAsBytes();
+        setState(() {
+          _selectedImageBytes = bytes;
+          _selectedImageFilename = picked.name;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error picking image: $e');
+    }
+  }
+
+  Widget _buildAvatarPreviewWidget(UserModel? user) {
+    if (_selectedImageBytes != null) {
+      return Container(
+        width: 84,
+        height: 84,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: const Color(0xFFFFDDCC), width: 3),
+          image: DecorationImage(
+            image: MemoryImage(Uint8List.fromList(_selectedImageBytes!)),
+            fit: BoxFit.cover,
+          ),
+        ),
+      );
+    }
+
+    if (user != null && user.avatar.isNotEmpty) {
+      final avatarUrl = "${PocketBaseConfig.baseUrl}/api/files/_pb_users_auth_/${user.uid}/${user.avatar}";
+      return Container(
+        width: 84,
+        height: 84,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: const Color(0xFFFFDDCC), width: 3),
+          image: DecorationImage(
+            image: NetworkImage(avatarUrl),
+            fit: BoxFit.cover,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: 84,
+      height: 84,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xFFFFDDCC), width: 3),
+        gradient: const LinearGradient(
+          colors: [Color(0xFFC0430E), Color(0xFFD4601A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Center(
+        child: Text(
+          _getInitials(user?.name ?? 'Admin Kartara'),
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            fontSize: 28,
+            letterSpacing: 1.2,
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final user = ref.watch(authProvider).currentUser;
+
     return Container(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -412,42 +514,22 @@ class _EditProfileSheetState extends ConsumerState<EditProfileSheet> {
 
                   // Avatar picker preview
                   Center(
-                    child: Stack(
-                      children: [
-                        Container(
-                          width: 84,
-                          height: 84,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(color: const Color(0xFFFFDDCC), width: 3),
-                            image: const DecorationImage(
-                              image: NetworkImage(
-                                'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80',
-                              ),
-                              fit: BoxFit.cover,
+                    child: GestureDetector(
+                      onTap: _pickImage,
+                      child: Stack(
+                        children: [
+                          _buildAvatarPreviewWidget(user),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: CircleAvatar(
+                              radius: 15,
+                              backgroundColor: const Color(0xFFC0430E),
+                              child: const Icon(Icons.camera_alt, size: 12, color: Colors.white),
                             ),
-                          ),
-                        ),
-                        Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: CircleAvatar(
-                            radius: 15,
-                            backgroundColor: const Color(0xFFC0430E),
-                            child: IconButton(
-                              icon: const Icon(Icons.camera_alt, size: 12, color: Colors.white),
-                              onPressed: () {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Mengubah foto profil admin...'),
-                                    backgroundColor: Color(0xFFC0430E),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        )
-                      ],
+                          )
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 24),
@@ -514,6 +596,8 @@ class _EditProfileSheetState extends ConsumerState<EditProfileSheet> {
                           final success = await ref.read(authProvider.notifier).updateProfile(
                             name: _nameController.text.trim(),
                             phone: _phoneController.text.trim(),
+                            imageBytes: _selectedImageBytes,
+                            imageFilename: _selectedImageFilename,
                           );
                           if (mounted) {
                             setState(() => _isLoading = false);
@@ -760,255 +844,6 @@ class _ChangePasswordSheetState extends ConsumerState<ChangePasswordSheet> {
   }
 }
 
-// 3. SHOP SETTINGS BOTTOM SHEET
-class ShopSettingsSheet extends StatefulWidget {
-  const ShopSettingsSheet({super.key});
-
-  @override
-  State<ShopSettingsSheet> createState() => _ShopSettingsSheetState();
-}
-
-class _ShopSettingsSheetState extends State<ShopSettingsSheet> {
-  final _formKey = GlobalKey<FormState>();
-  bool _isShopOpen = true;
-  bool _isLoading = false;
-  late TextEditingController _nameController;
-  late TextEditingController _addressController;
-
-  final Map<String, bool> _shippingCouriers = {
-    'JNE Express': true,
-    'J&T Express': true,
-    'Sicepat': true,
-    'POS Indonesia': false,
-  };
-
-  @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController(text: 'Kartara Jepara');
-    _addressController = TextEditingController(text: 'Kec. Tahunan, Kabupaten Jepara, Indonesia');
-    _loadSettings();
-  }
-
-  Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _isShopOpen = prefs.getBool('saved_shop_is_open') ?? true;
-      _nameController.text = prefs.getString('saved_shop_name') ?? 'Kartara Jepara';
-      _addressController.text = prefs.getString('saved_shop_address') ?? 'Kec. Tahunan, Kabupaten Jepara, Indonesia';
-      _shippingCouriers['JNE Express'] = prefs.getBool('saved_shop_jne') ?? true;
-      _shippingCouriers['J&T Express'] = prefs.getBool('saved_shop_jnt') ?? true;
-      _shippingCouriers['Sicepat'] = prefs.getBool('saved_shop_sicepat') ?? true;
-      _shippingCouriers['POS Indonesia'] = prefs.getBool('saved_shop_pos') ?? false;
-    });
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _addressController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFFFAF7F2),
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(28),
-          topRight: Radius.circular(28),
-        ),
-      ),
-      child: SafeArea(
-        top: false,
-        child: FractionallySizedBox(
-          heightFactor: 0.85,
-          child: Column(
-            children: [
-              const SizedBox(height: 16),
-              Center(
-                child: Container(
-                  width: 48,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE5E5E5),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Pengaturan Toko',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A1A1A)),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Kelola operasional, informasi lokasi, dan pilihan kurir logistik.',
-                      style: TextStyle(fontSize: 11, color: Color(0xFF7C7C7C)),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              
-              Expanded(
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Shop Status Card
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFFFDDCC)),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _isShopOpen ? 'Status Toko: Buka 🏪' : 'Status Toko: Tutup 🚪',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A1A1A)),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  const Text(
-                                    'Pelanggan bisa melakukan order sekarang.',
-                                    style: TextStyle(fontSize: 10, color: Color(0xFF7C7C7C)),
-                                  )
-                                ],
-                              ),
-                              Switch(
-                                value: _isShopOpen,
-                                activeColor: const Color(0xFFC0430E),
-                                onChanged: (val) => setState(() => _isShopOpen = val),
-                              )
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-
-                        // Shop Name
-                        TextFormField(
-                          controller: _nameController,
-                          decoration: InputDecoration(
-                            labelText: 'Nama Toko',
-                            labelStyle: const TextStyle(color: Color(0xFF7C7C7C), fontSize: 13),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFFC0430E), width: 1.5),
-                            ),
-                          ),
-                          validator: (v) => v!.isEmpty ? 'Nama toko wajib diisi' : null,
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Shop Address
-                        TextFormField(
-                          controller: _addressController,
-                          maxLines: 2,
-                          decoration: InputDecoration(
-                            labelText: 'Alamat Toko / Pengiriman',
-                            labelStyle: const TextStyle(color: Color(0xFF7C7C7C), fontSize: 13),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFFC0430E), width: 1.5),
-                            ),
-                          ),
-                          validator: (v) => v!.isEmpty ? 'Alamat wajib diisi' : null,
-                        ),
-                        const SizedBox(height: 20),
-
-                        // Courier Logistics Selection
-                        const Text(
-                          'Pilihan Kurir Pengiriman',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1A1A1A)),
-                        ),
-                        const SizedBox(height: 8),
-                        ..._shippingCouriers.keys.map((key) {
-                          return CheckboxListTile(
-                            value: _shippingCouriers[key],
-                            title: Text(key, style: const TextStyle(fontSize: 12.5, color: Color(0xFF1A1A1A))),
-                            activeColor: const Color(0xFFC0430E),
-                            contentPadding: EdgeInsets.zero,
-                            controlAffinity: ListTileControlAffinity.leading,
-                            onChanged: (val) {
-                              setState(() {
-                                _shippingCouriers[key] = val ?? false;
-                              });
-                            },
-                          );
-                        }),
-                        const SizedBox(height: 24),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-
-              // Save Changes Button
-              Padding(
-                padding: const EdgeInsets.all(24),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 48,
-                  child: ElevatedButton(
-                    onPressed: _isLoading ? null : () async {
-                      if (_formKey.currentState!.validate()) {
-                        setState(() => _isLoading = true);
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setBool('saved_shop_is_open', _isShopOpen);
-                        await prefs.setString('saved_shop_name', _nameController.text.trim());
-                        await prefs.setString('saved_shop_address', _addressController.text.trim());
-                        await prefs.setBool('saved_shop_jne', _shippingCouriers['JNE Express'] ?? true);
-                        await prefs.setBool('saved_shop_jnt', _shippingCouriers['J&T Express'] ?? true);
-                        await prefs.setBool('saved_shop_sicepat', _shippingCouriers['Sicepat'] ?? true);
-                        await prefs.setBool('saved_shop_pos', _shippingCouriers['POS Indonesia'] ?? false);
-                        if (mounted) {
-                          setState(() => _isLoading = false);
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Pengaturan toko berhasil diperbarui!'),
-                              backgroundColor: Color(0xFFC0430E),
-                            ),
-                          );
-                        }
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFC0430E),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      elevation: 0,
-                    ),
-                    child: _isLoading
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                        : const Text('Simpan Pengaturan', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 // 4. USER MANAGEMENT BOTTOM SHEET
 class UserManagementSheet extends ConsumerStatefulWidget {
@@ -1209,28 +1044,70 @@ class _UserManagementSheetState extends ConsumerState<UserManagementSheet> {
 }
 
 // 5. ACTIVITY LOG BOTTOM SHEET
-class ActivityLogSheet extends StatelessWidget {
+class ActivityLogSheet extends ConsumerStatefulWidget {
   const ActivityLogSheet({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final List<Map<String, String>> logs = [
+  ConsumerState<ActivityLogSheet> createState() => _ActivityLogSheetState();
+}
+
+class _ActivityLogSheetState extends ConsumerState<ActivityLogSheet> {
+  bool _isLoading = true;
+  List<Map<String, String>> _logs = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLogs();
+  }
+
+  String _formatPocketBaseDate(String dateStr) {
+    try {
+      final utcDate = DateTime.parse(dateStr).toLocal();
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final yesterday = today.subtract(const Duration(days: 1));
+      final checkDate = DateTime(utcDate.year, utcDate.month, utcDate.day);
+
+      final hourStr = utcDate.hour.toString().padLeft(2, '0');
+      final minStr = utcDate.minute.toString().padLeft(2, '0');
+      final timeStr = "$hourStr:$minStr";
+
+      if (checkDate == today) {
+        return "Hari ini, $timeStr";
+      } else if (checkDate == yesterday) {
+        return "Kemarin, $timeStr";
+      } else {
+        final diff = today.difference(checkDate).inDays;
+        if (diff < 7) {
+          return "$diff hari lalu";
+        }
+        final months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+        return "${utcDate.day} ${months[utcDate.month - 1]} ${utcDate.year}, $timeStr";
+      }
+    } catch (e) {
+      return dateStr;
+    }
+  }
+
+  Future<void> _fetchLogs() async {
+    final fallbackLogs = [
       {
         'time': 'Hari ini, 09:42',
         'title': 'Mengubah diskon produk "Kursi Kayu Jati Minimalis"',
-        'admin': 'Admin Kartara',
+        'admin': 'Kartara Official',
         'icon': 'edit',
       },
       {
         'time': 'Hari ini, 08:15',
         'title': 'Memperbarui kupon belanja KARTARACERIA',
-        'admin': 'Admin Kartara',
+        'admin': 'Kartara Official',
         'icon': 'card_giftcard',
       },
       {
         'time': 'Kemarin, 14:20',
         'title': 'Menambahkan produk baru "Meja Makan Solid Wood"',
-        'admin': 'Admin Kartara',
+        'admin': 'Kartara Official',
         'icon': 'add',
       },
       {
@@ -1242,11 +1119,56 @@ class ActivityLogSheet extends StatelessWidget {
       {
         'time': '2 hari lalu',
         'title': 'Mengubah banner promo "Gratis Ongkir Akhir Pekan"',
-        'admin': 'Admin Kartara',
+        'admin': 'Kartara Official',
         'icon': 'image',
       },
     ];
 
+    if (!PocketBaseConfig.enablePocketBase) {
+      if (mounted) {
+        setState(() {
+          _logs = fallbackLogs;
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
+    try {
+      final records = await PocketBaseConfig.pb.collection('activity_logs').getList(
+        page: 1,
+        perPage: 50,
+        sort: '-created',
+      );
+
+      final fetchedLogs = records.items.map((item) {
+        return {
+          'time': _formatPocketBaseDate(item.created),
+          'title': item.getStringValue('title'),
+          'admin': item.getStringValue('admin'),
+          'icon': item.getStringValue('icon'),
+        };
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _logs = fetchedLogs.isEmpty ? fallbackLogs : fetchedLogs;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching activity logs: $e');
+      if (mounted) {
+        setState(() {
+          _logs = fallbackLogs;
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       decoration: const BoxDecoration(
         color: Color(0xFFFAF7F2),
@@ -1293,84 +1215,94 @@ class ActivityLogSheet extends StatelessWidget {
               const SizedBox(height: 20),
 
               Expanded(
-                child: ListView.builder(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  itemCount: logs.length,
-                  itemBuilder: (context, index) {
-                    final log = logs[index];
-                    IconData iconData = Icons.info_outline;
-                    Color iconBg = const Color(0xFFEFF6FF);
-                    Color iconColor = const Color(0xFF2563EB);
+                child: _isLoading
+                    ? const Center(
+                        child: CircularProgressIndicator(
+                          color: Color(0xFFC0430E),
+                        ),
+                      )
+                    : ListView.builder(
+                        physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        itemCount: _logs.length,
+                        itemBuilder: (context, index) {
+                          final log = _logs[index];
+                          IconData iconData = Icons.info_outline;
+                          Color iconBg = const Color(0xFFEFF6FF);
+                          Color iconColor = const Color(0xFF2563EB);
 
-                    if (log['icon'] == 'edit') {
-                      iconData = Icons.edit_outlined;
-                      iconBg = const Color(0xFFFEF3C7);
-                      iconColor = const Color(0xFFD97706);
-                    } else if (log['icon'] == 'add') {
-                      iconData = Icons.add_circle_outline;
-                      iconBg = const Color(0xFFECFDF5);
-                      iconColor = const Color(0xFF059669);
-                    } else if (log['icon'] == 'card_giftcard') {
-                      iconData = Icons.card_giftcard_outlined;
-                      iconBg = const Color(0xFFFDF2F8);
-                      iconColor = const Color(0xFFDB2777);
-                    } else if (log['icon'] == 'check_circle') {
-                      iconData = Icons.check_circle_outline;
-                      iconBg = const Color(0xFFECFDF5);
-                      iconColor = const Color(0xFF059669);
-                    }
+                          if (log['icon'] == 'edit') {
+                            iconData = Icons.edit_outlined;
+                            iconBg = const Color(0xFFFEF3C7);
+                            iconColor = const Color(0xFFD97706);
+                          } else if (log['icon'] == 'add') {
+                            iconData = Icons.add_circle_outline;
+                            iconBg = const Color(0xFFECFDF5);
+                            iconColor = const Color(0xFF059669);
+                          } else if (log['icon'] == 'card_giftcard') {
+                            iconData = Icons.card_giftcard_outlined;
+                            iconBg = const Color(0xFFFDF2F8);
+                            iconColor = const Color(0xFFDB2777);
+                          } else if (log['icon'] == 'check_circle') {
+                            iconData = Icons.check_circle_outline;
+                            iconBg = const Color(0xFFECFDF5);
+                            iconColor = const Color(0xFF059669);
+                          } else if (log['icon'] == 'image') {
+                            iconData = Icons.image_outlined;
+                            iconBg = const Color(0xFFEFF6FF);
+                            iconColor = const Color(0xFF2563EB);
+                          }
 
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Timeline Dot with Icon
-                          Container(
-                            width: 38,
-                            height: 38,
-                            decoration: BoxDecoration(
-                              color: iconBg,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(iconData, color: iconColor, size: 18),
-                          ),
-                          const SizedBox(width: 14),
-
-                          // Timeline text details
-                          Expanded(
-                            child: Column(
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 20),
+                            child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  log['title']!,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Color(0xFF1A1A1A), height: 1.3),
+                                // Timeline Dot with Icon
+                                Container(
+                                  width: 38,
+                                  height: 38,
+                                  decoration: BoxDecoration(
+                                    color: iconBg,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(iconData, color: iconColor, size: 18),
                                 ),
-                                const SizedBox(height: 4),
-                                Row(
-                                  children: [
-                                    Text(
-                                      log['time']!,
-                                      style: const TextStyle(fontSize: 10, color: Color(0xFF9E9E9E)),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Text('•', style: TextStyle(color: Color(0xFF9E9E9E))),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'Oleh: ${log['admin']!}',
-                                      style: const TextStyle(fontSize: 10, color: Color(0xFF7C7C7C), fontWeight: FontWeight.bold),
-                                    ),
-                                  ],
-                                ),
+                                const SizedBox(width: 14),
+
+                                // Timeline text details
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        log['title']!,
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5, color: Color(0xFF1A1A1A), height: 1.3),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            log['time']!,
+                                            style: const TextStyle(fontSize: 10, color: Color(0xFF9E9E9E)),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          const Text('•', style: TextStyle(color: Color(0xFF9E9E9E))),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Oleh: ${log['admin']!}',
+                                            style: const TextStyle(fontSize: 10, color: Color(0xFF7C7C7C), fontWeight: FontWeight.bold),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                )
                               ],
                             ),
-                          )
-                        ],
+                          );
+                        },
                       ),
-                    );
-                  },
-                ),
               ),
             ],
           ),
@@ -1378,4 +1310,13 @@ class ActivityLogSheet extends StatelessWidget {
       ),
     );
   }
+}
+
+String _getInitials(String name) {
+  if (name.trim().isEmpty) return '?';
+  final parts = name.trim().split(' ');
+  if (parts.length > 1) {
+    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+  }
+  return parts[0][0].toUpperCase();
 }

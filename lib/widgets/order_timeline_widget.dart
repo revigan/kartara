@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/tracking_info.dart';
 
 class OrderTimelineStep {
   final String title;
@@ -23,6 +24,9 @@ class OrderTimelineWidget extends StatelessWidget {
   final String shippedTime;
   final String completedTime;
 
+  /// Dynamic timeline dari backend (prioritas utama)
+  final List<TrackingTimelineEvent>? dynamicTimeline;
+
   const OrderTimelineWidget({
     super.key,
     required this.currentStatus,
@@ -30,12 +34,25 @@ class OrderTimelineWidget extends StatelessWidget {
     this.paidTime = '',
     this.shippedTime = '',
     this.completedTime = '',
+    this.dynamicTimeline,
   });
 
   List<OrderTimelineStep> _buildSteps() {
+    // Gunakan dynamic timeline dari backend jika tersedia
+    if (dynamicTimeline != null && dynamicTimeline!.isNotEmpty) {
+      return dynamicTimeline!
+          .map((e) => OrderTimelineStep(
+                title: e.title,
+                description: e.description,
+                time: e.timestamp,
+                isCompleted: e.isCompleted,
+                isActive: e.isActive,
+              ))
+          .toList();
+    }
+
+    // Fallback ke logika lokal
     final status = currentStatus.toLowerCase();
-    
-    // Status list: pending, paid, processing, shipped, completed, cancelled
     final isCancelled = status == 'cancelled' || status == 'dibatalkan';
 
     if (isCancelled) {
@@ -117,33 +134,22 @@ class OrderTimelineWidget extends StatelessWidget {
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Left Line & Dot indicator
+            // Left: dot + connector line
             Column(
               children: [
-                Container(
-                  width: 14,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    color: step.isActive
-                        ? const Color(0xFFC0430E)
-                        : (step.isCompleted ? const Color(0xFFFFEAE0) : Colors.white),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: step.isCompleted ? const Color(0xFFC0430E) : const Color(0xFFE0D5C7),
-                      width: step.isActive ? 4 : 2,
-                    ),
-                  ),
-                ),
+                _buildDot(step),
                 if (!isLast)
                   Container(
                     width: 2,
-                    height: 50,
-                    color: step.isCompleted ? const Color(0xFFC0430E) : const Color(0xFFE0D5C7),
+                    height: 52,
+                    color: step.isCompleted
+                        ? const Color(0xFFC0430E)
+                        : const Color(0xFFE0D5C7),
                   ),
               ],
             ),
             const SizedBox(width: 16),
-            // Right text details
+            // Right: text details
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 20.0),
@@ -153,20 +159,24 @@ class OrderTimelineWidget extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          step.title,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: step.isActive
-                                ? const Color(0xFFC0430E)
-                                : (step.isCompleted ? const Color(0xFF2C2C2C) : const Color(0xFFA89A8C)),
+                        Expanded(
+                          child: Text(
+                            step.title,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: step.isActive
+                                  ? const Color(0xFFC0430E)
+                                  : (step.isCompleted
+                                      ? const Color(0xFF2C2C2C)
+                                      : const Color(0xFFA89A8C)),
+                            ),
                           ),
                         ),
                         if (step.time.isNotEmpty)
                           Text(
                             step.time,
-                            style: const TextStyle(fontSize: 11, color: Color(0xFF8C7E70)),
+                            style: const TextStyle(fontSize: 10, color: Color(0xFF8C7E70)),
                           ),
                       ],
                     ),
@@ -175,7 +185,9 @@ class OrderTimelineWidget extends StatelessWidget {
                       step.description,
                       style: TextStyle(
                         fontSize: 12,
-                        color: step.isCompleted ? const Color(0xFF6B5E52) : const Color(0xFFA89A8C),
+                        color: step.isCompleted
+                            ? const Color(0xFF6B5E52)
+                            : const Color(0xFFA89A8C),
                         height: 1.3,
                       ),
                     ),
@@ -186,6 +198,50 @@ class OrderTimelineWidget extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildDot(OrderTimelineStep step) {
+    if (step.isActive) {
+      // Pulse animation indicator untuk step aktif
+      return TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.8, end: 1.0),
+        duration: const Duration(milliseconds: 800),
+        builder: (context, value, child) {
+          return Transform.scale(
+            scale: value,
+            child: Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                color: const Color(0xFFC0430E),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFC0430E).withValues(alpha: 0.35),
+                    blurRadius: 8,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+        curve: Curves.easeInOut,
+      );
+    }
+
+    return Container(
+      width: 14,
+      height: 14,
+      decoration: BoxDecoration(
+        color: step.isCompleted ? const Color(0xFFFFEAE0) : Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: step.isCompleted ? const Color(0xFFC0430E) : const Color(0xFFE0D5C7),
+          width: step.isCompleted ? 2.5 : 1.5,
+        ),
+      ),
     );
   }
 }

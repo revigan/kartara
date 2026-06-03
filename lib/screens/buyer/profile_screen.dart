@@ -16,7 +16,6 @@ class BuyerProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final navNotifier = ref.read(navigationProvider.notifier);
-    final navState = ref.watch(navigationProvider);
     final authNotifier = ref.read(authProvider.notifier);
     final user = ref.watch(authProvider).currentUser;
 
@@ -28,25 +27,15 @@ class BuyerProfileScreen extends ConsumerWidget {
             // 1. Header (drawer menu icon on the left, centered bold title "Akun Saya")
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      // Toggle buyer side drawer if needed
-                    },
-                    child: const Icon(Icons.menu, color: Color(0xFF1A1A1A), size: 24),
+              child: const Center(
+                child: Text(
+                  'Akun Saya',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1A1A1A),
                   ),
-                  const Text(
-                    'Akun Saya',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1A1A1A),
-                    ),
-                  ),
-                  const SizedBox(width: 24), // Spacer to balance menu icon
-                ],
+                ),
               ),
             ),
 
@@ -185,8 +174,6 @@ class BuyerProfileScreen extends ConsumerWidget {
               ),
             ),
 
-            // 4. Standard Bottom Navigation Bar (matches index 3 selected)
-            _buildBottomNavBar(navState.buyerTab, navNotifier),
           ],
         ),
       ),
@@ -262,92 +249,6 @@ class BuyerProfileScreen extends ConsumerWidget {
     );
   }
 
-  // Consistent bottom navbar matching home screen
-  Widget _buildBottomNavBar(int selectedTab, AppNavigationNotifier navNotifier) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 10,
-            offset: const Offset(0, -3),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildBottomNavItem(
-                icon: Icons.home_outlined,
-                activeIcon: Icons.home,
-                label: 'Beranda',
-                isActive: selectedTab == 0,
-                onTap: () => navNotifier.changeBuyerTab(0),
-              ),
-              _buildBottomNavItem(
-                icon: Icons.shopping_bag_outlined,
-                activeIcon: Icons.shopping_bag,
-                label: 'Pesanan',
-                isActive: selectedTab == 1,
-                onTap: () => navNotifier.changeBuyerTab(1),
-              ),
-              _buildBottomNavItem(
-                icon: Icons.forum_outlined,
-                activeIcon: Icons.forum,
-                label: 'Asisten',
-                isActive: selectedTab == 2,
-                onTap: () => navNotifier.changeBuyerTab(2),
-              ),
-              _buildBottomNavItem(
-                icon: Icons.person_outline,
-                activeIcon: Icons.person,
-                label: 'Akun',
-                isActive: selectedTab == 3,
-                onTap: () => navNotifier.changeBuyerTab(3),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBottomNavItem({
-    required IconData icon,
-    required IconData activeIcon,
-    required String label,
-    required bool isActive,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            isActive ? activeIcon : icon,
-            color: isActive ? const Color(0xFFC0430E) : const Color(0xFF7C7C7C),
-            size: 24,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: isActive ? const Color(0xFFC0430E) : const Color(0xFF7C7C7C),
-              fontWeight: isActive ? FontWeight.bold : FontWeight.w500,
-              fontSize: 10,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   String _getInitials(String name) {
     if (name.trim().isEmpty) return '?';

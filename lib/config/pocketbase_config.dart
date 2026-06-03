@@ -12,4 +12,21 @@ class PocketBaseConfig {
 
   // Klien PocketBase global tunggal agar status autentikasi sinkron di seluruh aplikasi
   static final PocketBase pb = PocketBase(baseUrl);
+
+  static Future<void> logActivity({
+    required String title,
+    required String icon,
+    required String admin,
+  }) async {
+    if (!enablePocketBase) return;
+    try {
+      await pb.collection('activity_logs').create(body: {
+        'title': title,
+        'icon': icon,
+        'admin': admin,
+      });
+    } catch (e) {
+      print('Error logging activity: $e');
+    }
+  }
 }
