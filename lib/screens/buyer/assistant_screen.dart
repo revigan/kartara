@@ -62,7 +62,7 @@ class AIBackendService {
   final String baseUrl;
 
   AIBackendService({String? customBaseUrl})
-      : baseUrl = customBaseUrl ?? AppConfig.ngrokUrl {
+      : baseUrl = customBaseUrl ?? AppConfig.baseUrl {
     _dio = Dio(BaseOptions(
       baseUrl: baseUrl,
       connectTimeout: AppConfig.connectTimeout,
