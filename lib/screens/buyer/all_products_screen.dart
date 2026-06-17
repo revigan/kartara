@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/app_state.dart';
 import '../../models/product.dart';
@@ -116,7 +116,7 @@ class _AllProductsScreenState extends ConsumerState<AllProductsScreen> {
                       itemCount: filteredProducts.length,
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 2,
-                        childAspectRatio: 0.72,
+                        mainAxisExtent: 265,
                         crossAxisSpacing: 12,
                         mainAxisSpacing: 12,
                       ),
@@ -139,7 +139,8 @@ class _AllProductsScreenState extends ConsumerState<AllProductsScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
+                                SizedBox(
+                                  height: 130,
                                   child: Stack(
                                     children: [
                                       Positioned.fill(
@@ -242,7 +243,7 @@ class _AllProductsScreenState extends ConsumerState<AllProductsScreen> {
                                               children: [
                                                 if (p.hasDiscount)
                                                   Text(
-                                                    'Rp ${p.originalPrice.toStringAsFixed(0)}',
+                                                    'Rp ${p.originalPrice.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}',
                                                     style: const TextStyle(
                                                       color: Color(0xFF9E9E9E),
                                                       fontSize: 10,
@@ -251,7 +252,7 @@ class _AllProductsScreenState extends ConsumerState<AllProductsScreen> {
                                                     ),
                                                   ),
                                                 Text(
-                                                  'Rp ${p.price.toStringAsFixed(0)}',
+                                                  'Rp ${p.price.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}',
                                                   style: const TextStyle(
                                                     color: Color(0xFFC0430E),
                                                     fontSize: 13,

@@ -1390,7 +1390,7 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
       itemCount: products.length,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        childAspectRatio: 0.75,
+        mainAxisExtent: 280,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
       ),
@@ -1414,7 +1414,8 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Product Image with badges
-                Expanded(
+                SizedBox(
+                  height: 140,
                   child: Stack(
                     children: [
                       // Image clip
@@ -1573,7 +1574,7 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Rp ${p.price.toStringAsFixed(0)}',
+                                  'Rp ${p.price.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}',
                                   style: const TextStyle(
                                     color: Color(0xFFC0430E),
                                     fontSize: 15,
@@ -1582,7 +1583,7 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
                                 ),
                                 if (p.hasDiscount)
                                   Text(
-                                    'Rp ${p.originalPrice.toStringAsFixed(0)}',
+                                    'Rp ${p.originalPrice.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.')}',
                                     style: const TextStyle(
                                       color: Color(0xFF9E9E9E),
                                       fontSize: 11,

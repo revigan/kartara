@@ -5,10 +5,16 @@ const POCKETBASE_URL = process.env.POCKETBASE_URL || 'http://127.0.0.1:8090';
 /**
  * Get all products from PocketBase
  */
-async function getProducts() {
+async function getProducts(options = {}) {
   try {
+    const { filter, sort, perPage } = options;
+    const params = {
+      sort: sort || '-created',
+      filter: filter ? `isActive = true && (${filter})` : 'isActive = true',
+      perPage: perPage || 50,
+    };
     const response = await axios.get(`${POCKETBASE_URL}/api/collections/products/records`, {
-      params: { sort: '-created', filter: 'isActive = true' },
+      params,
     });
     return response.data.items.map(formatProduct);
   } catch (error) {
@@ -229,9 +235,14 @@ async function updateOrderStatus(orderId, newStatus) {
 async function getOrdersByBuyer(buyerPhone) {
   try {
     if (!buyerPhone || buyerPhone === 'guest') return [];
+    let filter = `buyerPhone = "${buyerPhone}"`;
+    if (/^\+?[0-9]+$/.test(buyerPhone)) {
+      const cleanPhone = buyerPhone.replace(/^\+?62/, '').replace(/^0/, '');
+      filter = `buyerPhone = "0${cleanPhone}" || buyerPhone = "+62${cleanPhone}" || buyerPhone = "${buyerPhone}"`;
+    }
     const response = await axios.get(`${POCKETBASE_URL}/api/collections/orders/records`, {
       params: {
-        filter: `buyerPhone = "${buyerPhone}"`,
+        filter: filter,
         sort: '-created',
         perPage: 5,
       },
@@ -250,7 +261,12 @@ async function getLatestOrder(userId) {
   try {
     let filter = '';
     if (userId && userId !== 'guest') {
-      filter = `buyerId = "${userId}" || buyerPhone = "${userId}"`;
+      if (/^\+?[0-9]+$/.test(userId)) {
+        const cleanPhone = userId.replace(/^\+?62/, '').replace(/^0/, '');
+        filter = `buyerId = "${userId}" || buyerPhone = "0${cleanPhone}" || buyerPhone = "+62${cleanPhone}" || buyerPhone = "${userId}"`;
+      } else {
+        filter = `buyerId = "${userId}" || buyerPhone = "${userId}"`;
+      }
     }
 
     const params = {
@@ -284,9 +300,16 @@ async function getLatestOrder(userId) {
 async function getUserByPhoneOrId(userId) {
   try {
     if (!userId || userId === 'guest') return null;
+    let filter = `id = "${userId}" || email = "${userId}"`;
+    if (/^\+?[0-9]+$/.test(userId)) {
+      const cleanPhone = userId.replace(/^\+?62/, '').replace(/^0/, '');
+      filter += ` || phone = "0${cleanPhone}" || phone = "+62${cleanPhone}" || phone = "${userId}"`;
+    } else {
+      filter += ` || phone = "${userId}"`;
+    }
     const response = await axios.get(`${POCKETBASE_URL}/api/collections/users/records`, {
       params: {
-        filter: `phone = "${userId}" || id = "${userId}" || email = "${userId}"`,
+        filter: filter,
         perPage: 1,
       },
     });
@@ -313,6 +336,7 @@ function formatProduct(record) {
     name: record.name || '',
     sellerName: record.sellerName || '',
     price: record.price || 0,
+    originalPrice: record.originalPrice || 0,
     imageUrl,
     category: record.category || 'Udang',
     rating: record.rating || 4.8,
@@ -320,6 +344,7 @@ function formatProduct(record) {
     weight: record.weight || 250,
     description: record.description || '',
     stock: record.stock || 0,
+    characteristics: record.characteristics || [],
   };
 }
 

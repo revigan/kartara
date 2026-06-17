@@ -40,6 +40,16 @@ import 'screens/admin/promo_management_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Always disable GoogleFonts HTTP fetching — use locally bundled fonts
+  // to prevent CanvasKit crash on Web when network is unavailable
+  GoogleFonts.config.allowRuntimeFetching = false;
+
+  // Catch any unhandled Flutter framework errors gracefully
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+  };
+
   runApp(
     const ProviderScope(
       child: MyApp(),
@@ -62,8 +72,8 @@ class MyApp extends StatelessWidget {
           primary: const Color(0xFFC0430E),
         ),
         scaffoldBackgroundColor: const Color(0xFFFAF7F2),
-        textTheme: GoogleFonts.outfitTextTheme(
-          Theme.of(context).textTheme,
+        textTheme: Theme.of(context).textTheme.apply(
+          fontFamily: 'Outfit',
         ),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFFFAF7F2),

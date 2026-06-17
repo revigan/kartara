@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,6 +20,7 @@ class ChatMessage {
   final DateTime timestamp;
   final List<Product>? products;
   final OrderModel? order;
+  final List<String>? suggestions;
 
   ChatMessage({
     required this.id,
@@ -27,6 +29,7 @@ class ChatMessage {
     required this.timestamp,
     this.products,
     this.order,
+    this.suggestions,
   });
 
   Map<String, dynamic> toJson() {
@@ -37,6 +40,7 @@ class ChatMessage {
       'timestamp': timestamp.toIso8601String(),
       'products': products?.map((p) => p.toJson()).toList(),
       'order': order?.toJson(),
+      'suggestions': suggestions,
     };
   }
 
@@ -51,6 +55,9 @@ class ChatMessage {
           : null,
       order: json['order'] != null
           ? OrderModel.fromJson(Map<String, dynamic>.from(json['order']))
+          : null,
+      suggestions: json['suggestions'] != null
+          ? List<String>.from(json['suggestions'])
           : null,
     );
   }
@@ -119,11 +126,15 @@ class AssistantScreen extends ConsumerStatefulWidget {
   ConsumerState<AssistantScreen> createState() => _AssistantScreenState();
 }
 
-class _AssistantScreenState extends ConsumerState<AssistantScreen> {
+class _AssistantScreenState extends ConsumerState<AssistantScreen>
+    with TickerProviderStateMixin {
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _isTyping = false;
+  bool _hasText = false;
   late final AIBackendService _aiService;
+  late AnimationController _typingAnimController;
+  late AnimationController _pulseController;
   
   // Custom message history list
   List<ChatMessage> _messages = [];
@@ -196,11 +207,25 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
   void initState() {
     super.initState();
     _aiService = AIBackendService();
+    _typingAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    )..repeat(reverse: true);
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    )..repeat(reverse: true);
+    _inputController.addListener(() {
+      final has = _inputController.text.trim().isNotEmpty;
+      if (has != _hasText) setState(() => _hasText = has);
+    });
     _loadChatHistory();
   }
 
   @override
   void dispose() {
+    _typingAnimController.dispose();
+    _pulseController.dispose();
     _inputController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -265,13 +290,14 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
           name: p['name'] ?? '',
           sellerName: p['sellerName'] ?? '',
           price: (p['price'] as num?)?.toDouble() ?? 0.0,
+          originalPrice: (p['originalPrice'] as num?)?.toDouble() ?? 0.0,
           imageUrl: p['imageUrl'] ?? '',
           category: p['category'] ?? 'Udang',
           rating: (p['rating'] as num?)?.toDouble() ?? 4.8,
           reviewsCount: p['reviewsCount'] ?? 0,
           weight: p['weight'] ?? 250,
           description: p['description'] ?? '',
-          characteristics: [],
+          characteristics: (p['characteristics'] as List?)?.map((e) => e.toString()).toList() ?? [],
           stock: p['stock'] ?? 0,
         );
       }).toList();
@@ -295,6 +321,10 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
         );
       }
 
+      final suggestions = response['suggestions'] != null
+          ? List<String>.from(response['suggestions'])
+          : <String>[];
+
       setState(() {
         _isTyping = false;
         _messages.add(ChatMessage(
@@ -303,6 +333,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
           text: aiText,
           timestamp: DateTime.now(),
           order: order,
+          suggestions: suggestions.isNotEmpty ? suggestions : null,
         ));
         
         // Add products if available
@@ -316,6 +347,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
           ));
         }
       });
+
 
       // Add to conversation history
       _conversationHistory.add({
@@ -378,13 +410,14 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
           name: p['name'] ?? '',
           sellerName: p['sellerName'] ?? '',
           price: (p['price'] as num?)?.toDouble() ?? 0.0,
+          originalPrice: (p['originalPrice'] as num?)?.toDouble() ?? 0.0,
           imageUrl: p['imageUrl'] ?? '',
           category: p['category'] ?? 'Udang',
           rating: (p['rating'] as num?)?.toDouble() ?? 4.8,
           reviewsCount: p['reviewsCount'] ?? 0,
           weight: p['weight'] ?? 250,
           description: p['description'] ?? '',
-          characteristics: [],
+          characteristics: (p['characteristics'] as List?)?.map((e) => e.toString()).toList() ?? [],
           stock: p['stock'] ?? 0,
         );
       }).toList();
@@ -408,6 +441,10 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
         );
       }
 
+      final suggestions2 = response['suggestions'] != null
+          ? List<String>.from(response['suggestions'])
+          : <String>[];
+
       setState(() {
         _isTyping = false;
         _messages.add(ChatMessage(
@@ -416,6 +453,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
           text: aiText,
           timestamp: DateTime.now(),
           order: order,
+          suggestions: suggestions2.isNotEmpty ? suggestions2 : null,
         ));
         
         // Add products if available
@@ -429,6 +467,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
           ));
         }
       });
+
 
       _scrollToBottom();
       await _saveChatHistory();
@@ -456,21 +495,48 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFFAF7F2),
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: const Color(0xFFFAF7F2),
         elevation: 0,
-        centerTitle: true,
+        centerTitle: false,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Color(0xFF1A1A1A)),
+          icon: const Icon(Icons.arrow_back_ios_new, color: Color(0xFF1A1A1A), size: 18),
           onPressed: () => navNotifier.changeBuyerTab(0),
         ),
-        title: const Text(
-          'Asisten Kartara',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFFC0430E),
-          ),
+        title: Row(
+          children: [
+            AnimatedBuilder(
+              animation: _pulseController,
+              builder: (context, child) => Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: const Color(0xFFFFF0E6),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFC0430E).withOpacity(0.15 + _pulseController.value * 0.2),
+                      blurRadius: 8 + _pulseController.value * 6,
+                      spreadRadius: _pulseController.value * 2,
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.smart_toy_outlined, color: Color(0xFFC0430E), size: 20),
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'Asisten Kartara',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1A1A1A)),
+            ),
+          ],
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete_sweep_outlined, color: Color(0xFF9E9E9E), size: 22),
+            tooltip: 'Hapus riwayat chat',
+            onPressed: () => _showClearDialog(context),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -484,13 +550,15 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
               itemBuilder: (context, index) {
                 final msg = _messages[index];
                 if (msg.sender == 'user') {
-                  return _buildUserBubble(msg.text);
+                  return _buildUserBubble(msg.text, msg.timestamp);
                 } else if (msg.sender == 'assistant') {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildAssistantBubble(msg.text),
+                      _buildAssistantBubble(msg.text, msg.timestamp),
                       if (msg.order != null) _buildOrderTrackingCard(msg.order!),
+                      if (msg.suggestions != null && msg.suggestions!.isNotEmpty)
+                        _buildSuggestionChips(msg.suggestions!),
                     ],
                   );
                 } else if (msg.sender == 'assistant_options') {
@@ -503,81 +571,262 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
             ),
           ),
 
-          // 2. Typing indicator
+          // 2. Typing indicator (animated dots)
           if (_isTyping)
             Padding(
               padding: const EdgeInsets.only(left: 16, bottom: 8),
               child: Row(
                 children: [
-                  _buildRobotAvatar(),
-                  const SizedBox(width: 8),
-                  const Text('Asisten sedang mengetik...', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  Container(
+                    width: 34, height: 34,
+                    decoration: const BoxDecoration(color: Color(0xFFFFF0E6), shape: BoxShape.circle),
+                    child: const Icon(Icons.smart_toy_outlined, color: Color(0xFFC0430E), size: 18),
+                  ),
+                  const SizedBox(width: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: const Color(0xFFFFE0CC)),
+                    ),
+                    child: AnimatedBuilder(
+                      animation: _typingAnimController,
+                      builder: (context, _) => Row(
+                        children: List.generate(3, (i) => Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 2),
+                          width: 6, height: 6,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Color.lerp(
+                              const Color(0xFFC0430E).withOpacity(0.3),
+                              const Color(0xFFC0430E),
+                              i == 0 ? _typingAnimController.value
+                                  : i == 1 ? (_typingAnimController.value + 0.3).clamp(0.0, 1.0)
+                                  : (_typingAnimController.value + 0.6).clamp(0.0, 1.0),
+                            ),
+                          ),
+                        )),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
 
-          // 3. Text Input Box (as shown in Screenshot 2)
+          // 3. Input bar
           _buildInputBar(),
         ],
       ),
     );
   }
 
+  void _showClearDialog(BuildContext ctx) {
+    showDialog(
+      context: ctx,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Hapus Riwayat Chat?', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text('Seluruh percakapan dengan Asisten Kartara akan dihapus.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFC0430E), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final authState = ref.read(authProvider);
+              final phone = authState.currentUser?.phone ?? 'guest';
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove('assistant_messages_$phone');
+              await prefs.remove('assistant_history_$phone');
+              setState(() {
+                _messages = [
+                  ChatMessage(id: 'init', sender: 'assistant', text: 'Hai! Saya Asisten Kartara. Ada yang bisa saya bantu? 😊', timestamp: DateTime.now(), suggestions: ['Rekomendasi terlaris ⭐', 'Cek promo hari ini 🎉', 'Info ongkir 🚚']),
+                  ChatMessage(id: 'init_opts', sender: 'assistant_options', text: '', timestamp: DateTime.now()),
+                ];
+                _conversationHistory.clear();
+              });
+            },
+            child: const Text('Hapus', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+
   // User Message bubble
-  Widget _buildUserBubble(String text) {
+  Widget _buildUserBubble(String text, DateTime timestamp) {
     return Align(
       alignment: Alignment.centerRight,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12, left: 40),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: const BoxDecoration(
-          color: Color(0xFFC0430E),
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(18),
-            topRight: Radius.circular(18),
-            bottomLeft: Radius.circular(18),
-            bottomRight: Radius.circular(4),
-          ),
-        ),
-        child: Text(
-          text,
-          style: const TextStyle(color: Colors.white, fontSize: 13),
+        margin: const EdgeInsets.only(bottom: 12, left: 60),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFFE05A20), Color(0xFFC0430E)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(18),
+                  topRight: Radius.circular(18),
+                  bottomLeft: Radius.circular(18),
+                  bottomRight: Radius.circular(4),
+                ),
+                boxShadow: [
+                  BoxShadow(color: Color(0x30C0430E), blurRadius: 8, offset: Offset(0, 3)),
+                ],
+              ),
+              child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.4)),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              '${timestamp.hour.toString().padLeft(2,'0')}:${timestamp.minute.toString().padLeft(2,'0')}',
+              style: const TextStyle(fontSize: 10, color: Color(0xFFAAAAAA)),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // Assistant Message bubble
-  Widget _buildAssistantBubble(String text) {
+  // Assistant Message bubble with simple markdown rendering
+  Widget _buildAssistantBubble(String text, DateTime timestamp) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildRobotAvatar(),
+          Container(
+            width: 34, height: 34,
+            decoration: const BoxDecoration(color: Color(0xFFFFF0E6), shape: BoxShape.circle),
+            child: const Icon(Icons.smart_toy_outlined, color: Color(0xFFC0430E), size: 18),
+          ),
           const SizedBox(width: 10),
           Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFFF7F2),
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(18),
-                    topRight: Radius.circular(18),
-                    bottomLeft: Radius.circular(4),
-                    bottomRight: Radius.circular(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(4),
+                      topRight: Radius.circular(18),
+                      bottomLeft: Radius.circular(18),
+                      bottomRight: Radius.circular(18),
+                    ),
+                    border: Border.all(color: const Color(0xFFFFE0CC), width: 1),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, 2))],
                   ),
+                  child: _buildMarkdownText(text),
                 ),
-                child: Text(
-                  text,
-                  style: const TextStyle(color: Color(0xFF1A1A1A), fontSize: 13, height: 1.4),
+                const SizedBox(height: 3),
+                Text(
+                  '${timestamp.hour.toString().padLeft(2,'0')}:${timestamp.minute.toString().padLeft(2,'0')}',
+                  style: const TextStyle(fontSize: 10, color: Color(0xFFAAAAAA)),
                 ),
-              ),
+              ],
             ),
           ),
+          const SizedBox(width: 40),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMarkdownText(String text) {
+    final lines = text.split('\n');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: lines.map((line) {
+        if (line.startsWith('• ') || line.startsWith('- ')) {
+          final content = line.substring(2);
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('• ', style: TextStyle(color: Color(0xFFC0430E), fontWeight: FontWeight.bold)),
+                Expanded(child: _buildInlineMarkdown(content)),
+              ],
+            ),
+          );
+        } else if (RegExp(r'^\d+\.').hasMatch(line)) {
+          final dot = line.indexOf('.');
+          final num = line.substring(0, dot + 1);
+          final content = line.substring(dot + 1).trim();
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 2),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('$num ', style: const TextStyle(color: Color(0xFFC0430E), fontWeight: FontWeight.bold, fontSize: 13)),
+                Expanded(child: _buildInlineMarkdown(content)),
+              ],
+            ),
+          );
+        } else if (line.isEmpty) {
+          return const SizedBox(height: 6);
+        } else {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 1),
+            child: _buildInlineMarkdown(line),
+          );
+        }
+      }).toList(),
+    );
+  }
+
+  Widget _buildInlineMarkdown(String text) {
+    final spans = <TextSpan>[];
+    final regex = RegExp(r'\*\*(.*?)\*\*');
+    int lastEnd = 0;
+    for (final match in regex.allMatches(text)) {
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(text: text.substring(lastEnd, match.start),
+            style: const TextStyle(color: Color(0xFF1A1A1A), fontSize: 13, height: 1.4)));
+      }
+      spans.add(TextSpan(text: match.group(1),
+          style: const TextStyle(color: Color(0xFF1A1A1A), fontSize: 13, height: 1.4, fontWeight: FontWeight.bold)));
+      lastEnd = match.end;
+    }
+    if (lastEnd < text.length) {
+      spans.add(TextSpan(text: text.substring(lastEnd),
+          style: const TextStyle(color: Color(0xFF1A1A1A), fontSize: 13, height: 1.4)));
+    }
+    return RichText(text: TextSpan(children: spans));
+  }
+
+  // Suggestion chips shown after assistant messages
+  Widget _buildSuggestionChips(List<String> suggestions) {
+    return Container(
+      margin: const EdgeInsets.only(left: 44, bottom: 14, top: 4),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        children: suggestions.map((s) => GestureDetector(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            _handleQuickReply(s, s);
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFC0430E).withOpacity(0.5)),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4, offset: const Offset(0,2))],
+            ),
+            child: Text(s, style: const TextStyle(fontSize: 12, color: Color(0xFFC0430E), fontWeight: FontWeight.w600)),
+          ),
+        )).toList(),
       ),
     );
   }
@@ -811,141 +1060,158 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen> {
     );
   }
 
-  // Horizontal recommendations cards
   Widget _buildHorizontalProductsPanel(List<Product> products) {
     if (products.isEmpty) return const SizedBox();
-    
     return Container(
-      height: 200,
-      margin: const EdgeInsets.only(left: 52, bottom: 16),
+      height: 220,
+      margin: const EdgeInsets.only(left: 44, bottom: 16),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         itemCount: products.length,
-        separatorBuilder: (context, index) => const SizedBox(width: 12),
+        separatorBuilder: (context, index) => const SizedBox(width: 10),
         itemBuilder: (context, index) {
           final product = products[index];
-          return _buildRecommendationProductCard(
-            product.sellerName,
-            product.name,
-            product.imageUrl,
-            product,
-          );
+          return _buildRecommendationProductCard(product);
         },
       ),
     );
   }
 
-  Widget _buildRecommendationProductCard(String umkm, String name, String imgUrl, Product product) {
+  Widget _buildRecommendationProductCard(Product product) {
     final navNotifier = ref.read(navigationProvider.notifier);
-    
+    final cartNotifier = ref.read(cartProvider.notifier);
+    final price = product.price.toStringAsFixed(0).replaceAllMapped(
+        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]}.');
+
     return GestureDetector(
       onTap: () => navNotifier.navigateToBuyer('detail', product: product),
       child: Container(
-      width: 130,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFFFDDCC)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.01),
-            blurRadius: 6,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Image slot
-          ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
-            child: SizedBox(
-              height: 100,
-              width: double.infinity,
-              child: Image.network(
-                imgUrl,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  color: const Color(0xFFFFF0E6),
-                  child: const Icon(Icons.cookie, color: Color(0xFFC0430E), size: 30),
+        width: 140,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFFFDDCC)),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 3))],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+              child: SizedBox(
+                height: 100,
+                width: double.infinity,
+                child: Image.network(
+                  product.imageUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    color: const Color(0xFFFFF0E6),
+                    child: const Icon(Icons.cookie, color: Color(0xFFC0430E), size: 30),
+                  ),
                 ),
               ),
             ),
-          ),
-          // Product & seller titles
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  umkm,
-                  style: const TextStyle(fontSize: 10, color: Color(0xFF7C7C7C)),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  name,
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1A1A1A)),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    ),
-    );
-  }
-
-  // Rounded text input bar matching Screenshot 2
-  Widget _buildInputBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      color: Colors.transparent,
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(
-              height: 46,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: const Color(0xFFFFDDCC)),
-              ),
-              child: Row(
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _inputController,
-                      onSubmitted: _handleSend,
-                      decoration: const InputDecoration(
-                        hintText: 'Ketik pesan...',
-                        hintStyle: TextStyle(fontSize: 13, color: Colors.grey),
-                        border: InputBorder.none,
+                  Text(product.sellerName,
+                      style: const TextStyle(fontSize: 9, color: Color(0xFF9E9E9E), fontWeight: FontWeight.w500)),
+                  const SizedBox(height: 2),
+                  Text(product.name,
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1A1A1A)),
+                      maxLines: 2, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Rp $price',
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFFC0430E))),
+                      GestureDetector(
+                        onTap: product.stock <= 0 ? null : () {
+                          cartNotifier.addToCart(product);
+                          HapticFeedback.lightImpact();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('${product.name} ditambahkan! 🛒'),
+                              duration: const Duration(seconds: 1),
+                              backgroundColor: const Color(0xFFC0430E),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          width: 26, height: 26,
+                          decoration: BoxDecoration(
+                            color: product.stock <= 0 ? Colors.grey.shade300 : const Color(0xFFC0430E),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.add, color: Colors.white, size: 14),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: () => _handleSend(_inputController.text),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInputBar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAF7F2),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -3))],
+      ),
+      child: Row(
+        children: [
+          Expanded(
             child: Container(
-              width: 44,
-              height: 44,
-              decoration: const BoxDecoration(
-                color: Color(0xFFC0430E),
-                shape: BoxShape.circle,
+              constraints: const BoxConstraints(minHeight: 46, maxHeight: 110),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: _hasText ? const Color(0xFFC0430E) : const Color(0xFFFFDDCC)),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)],
               ),
-              child: const Icon(Icons.send, color: Colors.white, size: 18),
+              child: TextField(
+                controller: _inputController,
+                onSubmitted: _handleSend,
+                maxLines: 4,
+                minLines: 1,
+                style: const TextStyle(fontSize: 13),
+                decoration: const InputDecoration(
+                  hintText: 'Tanya Asisten Kartara...',
+                  hintStyle: TextStyle(fontSize: 13, color: Color(0xFFBBBBBB)),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.symmetric(vertical: 10),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              color: _hasText ? const Color(0xFFC0430E) : const Color(0xFFE0E0E0),
+              shape: BoxShape.circle,
+              boxShadow: _hasText ? [const BoxShadow(color: Color(0x40C0430E), blurRadius: 8, offset: Offset(0, 3))] : [],
+            ),
+            child: IconButton(
+              onPressed: _hasText ? () { HapticFeedback.lightImpact(); _handleSend(_inputController.text); } : null,
+              icon: Icon(Icons.send_rounded, color: _hasText ? Colors.white : Colors.grey.shade400, size: 20),
+              padding: EdgeInsets.zero,
             ),
           ),
         ],
