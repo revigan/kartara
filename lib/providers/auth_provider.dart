@@ -794,11 +794,25 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> logout() async {
     pb.authStore.clear();
-    
-    // Hapus sesi tersimpan di perangkat lokal
+
+    // Hapus hanya data sesi login — data chat history TIDAK dihapus
+    // agar history chat tetap tersimpan meski user logout
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.clear();
+      await prefs.remove('saved_email');
+      await prefs.remove('saved_password');
+      await prefs.remove('saved_uid');
+      await prefs.remove('saved_name');
+      await prefs.remove('saved_phone');
+      await prefs.remove('saved_role');
+      await prefs.remove('saved_address');
+      await prefs.remove('saved_avatar');
+      await prefs.remove('saved_postal_code');
+      await prefs.remove('has_password');
+      await prefs.remove('reset_otp');
+      await prefs.remove('reset_email');
+      await prefs.remove('reset_otp_timestamp');
+      // key 'chat_messages_*', 'chat_convo_*', 'chat_sessions_*' TIDAK dihapus
     } catch (e) {
       // ignore
     }

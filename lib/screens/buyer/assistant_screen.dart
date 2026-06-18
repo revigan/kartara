@@ -63,6 +63,39 @@ class ChatMessage {
   }
 }
 
+// ─── ChatSession model ───────────────────────────────────────────────────────
+class ChatSession {
+  final String id;
+  String title;
+  final DateTime createdAt;
+  DateTime lastMessageAt;
+  int messageCount;
+
+  ChatSession({
+    required this.id,
+    required this.title,
+    required this.createdAt,
+    required this.lastMessageAt,
+    required this.messageCount,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'createdAt': createdAt.toIso8601String(),
+        'lastMessageAt': lastMessageAt.toIso8601String(),
+        'messageCount': messageCount,
+      };
+
+  factory ChatSession.fromJson(Map<String, dynamic> json) => ChatSession(
+        id: json['id'] as String,
+        title: json['title'] as String? ?? 'Sesi Chat',
+        createdAt: DateTime.parse(json['createdAt'] as String),
+        lastMessageAt: DateTime.parse(json['lastMessageAt'] as String),
+        messageCount: json['messageCount'] as int? ?? 0,
+      );
+}
+
 // AI Backend Service
 class AIBackendService {
   late final Dio _dio;
@@ -136,40 +169,27 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen>
   late AnimationController _typingAnimController;
   late AnimationController _pulseController;
   
-  // Custom message history list
+  // ─── State ──────────────────────────────────────────────────────────────────
   List<ChatMessage> _messages = [];
   final List<Map<String, String>> _conversationHistory = [];
 
-  Future<void> _loadChatHistory() async {
-    final authState = ref.read(authProvider);
-    final phone = authState.currentUser?.phone ?? 'guest';
-    final prefs = await SharedPreferences.getInstance();
+  // Multi-session state
+  List<ChatSession> _sessions = [];
+  String _activeSessionId = '';
+  bool _isHistoryOpen = false;
 
-    final messagesJsonStr = prefs.getString('assistant_messages_$phone');
-    final historyJsonStr = prefs.getString('assistant_history_$phone');
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
+  String get _uid => ref.read(authProvider).currentUser?.uid ?? 'guest';
 
-    if (messagesJsonStr != null && historyJsonStr != null) {
-      try {
-        final List decodedMessages = jsonDecode(messagesJsonStr);
-        final List decodedHistory = jsonDecode(historyJsonStr);
+  String _generateSessionId() =>
+      'session_${DateTime.now().millisecondsSinceEpoch}';
 
-        setState(() {
-          _messages = decodedMessages
-              .map((m) => ChatMessage.fromJson(Map<String, dynamic>.from(m)))
-              .toList();
-          _conversationHistory.clear();
-          _conversationHistory.addAll(decodedHistory.map((h) => Map<String, String>.from(h)));
-        });
-        _scrollToBottom();
-        return;
-      } catch (e) {
-        debugPrint('Error loading chat history: $e');
-      }
-    }
+  String _generateTitle(String firstUserMsg) {
+    final t = firstUserMsg.trim();
+    return t.isEmpty ? 'Sesi Chat' : (t.length > 38 ? '${t.substring(0, 38)}…' : t);
+  }
 
-    // Default initialization if no history is found
-    setState(() {
-      _messages = [
+  List<ChatMessage> _makeWelcomeMessages() => [
         ChatMessage(
           id: 'msg_init_1',
           sender: 'assistant',
@@ -183,6 +203,96 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen>
           timestamp: DateTime.now(),
         ),
       ];
+
+  // ─── Storage keys ────────────────────────────────────────────────────────────
+  String _keySessionsList(String uid) => 'chat_sessions_$uid';
+  String _keyMessages(String uid, String sid) => 'chat_messages_${uid}_$sid';
+  String _keyConvo(String uid, String sid) => 'chat_convo_${uid}_$sid';
+
+  // ─── Load / Init ─────────────────────────────────────────────────────────────
+  Future<void> _loadSessions() async {
+    final uid = _uid;
+    final prefs = await SharedPreferences.getInstance();
+
+    // ── Migrate from old single-session key (phone-based) ──
+    final authState = ref.read(authProvider);
+    final phone = authState.currentUser?.phone ?? '';
+    if (phone.isNotEmpty) {
+      final oldMsg = prefs.getString('assistant_messages_$phone');
+      final oldHist = prefs.getString('assistant_history_$phone');
+      final newSessKey = _keySessionsList(uid);
+      if (oldMsg != null && prefs.getString(newSessKey) == null) {
+        final migratedId = _generateSessionId();
+        await prefs.setString(_keyMessages(uid, migratedId), oldMsg);
+        if (oldHist != null) {
+          await prefs.setString(_keyConvo(uid, migratedId), oldHist);
+        }
+        final session = ChatSession(
+          id: migratedId,
+          title: 'Riwayat Lama',
+          createdAt: DateTime.now(),
+          lastMessageAt: DateTime.now(),
+          messageCount: 0,
+        );
+        await prefs.setString(newSessKey, jsonEncode([session.toJson()]));
+        await prefs.remove('assistant_messages_$phone');
+        await prefs.remove('assistant_history_$phone');
+      }
+    }
+
+    // ── Load sessions list ──
+    final sessionsStr = prefs.getString(_keySessionsList(uid));
+    if (sessionsStr != null) {
+      try {
+        final decoded = jsonDecode(sessionsStr) as List;
+        _sessions = decoded
+            .map((s) => ChatSession.fromJson(Map<String, dynamic>.from(s)))
+            .toList()
+          ..sort((a, b) => b.lastMessageAt.compareTo(a.lastMessageAt));
+      } catch (_) {
+        _sessions = [];
+      }
+    }
+
+    if (_sessions.isEmpty) {
+      await _createNewSession(prefs: prefs, uid: uid);
+    } else {
+      _activeSessionId = _sessions.first.id;
+      await _loadSessionMessages(prefs: prefs, uid: uid, sid: _activeSessionId);
+    }
+  }
+
+  Future<void> _loadSessionMessages({
+    required SharedPreferences prefs,
+    required String uid,
+    required String sid,
+  }) async {
+    final msgStr = prefs.getString(_keyMessages(uid, sid));
+    final convStr = prefs.getString(_keyConvo(uid, sid));
+    if (msgStr != null) {
+      try {
+        final decoded = jsonDecode(msgStr) as List;
+        setState(() {
+          _messages = decoded
+              .map((m) => ChatMessage.fromJson(Map<String, dynamic>.from(m)))
+              .toList();
+          _conversationHistory.clear();
+          if (convStr != null) {
+            final convDecoded = jsonDecode(convStr) as List;
+            _conversationHistory.addAll(
+              convDecoded.map((h) => Map<String, String>.from(h)),
+            );
+          }
+        });
+        _scrollToBottom();
+        return;
+      } catch (e) {
+        debugPrint('Error loading session messages: $e');
+      }
+    }
+    // Fallback: show welcome
+    setState(() {
+      _messages = _makeWelcomeMessages();
       _conversationHistory.clear();
       _conversationHistory.add({
         'role': 'assistant',
@@ -191,16 +301,105 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen>
     });
   }
 
-  Future<void> _saveChatHistory() async {
-    final authState = ref.read(authProvider);
-    final phone = authState.currentUser?.phone ?? 'guest';
+  Future<void> _createNewSession({SharedPreferences? prefs, String? uid}) async {
+    prefs ??= await SharedPreferences.getInstance();
+    uid ??= _uid;
+    final sid = _generateSessionId();
+    final now = DateTime.now();
+    final session = ChatSession(
+      id: sid,
+      title: 'Sesi Baru',
+      createdAt: now,
+      lastMessageAt: now,
+      messageCount: 0,
+    );
+    _sessions.insert(0, session);
+    // Trim to max 20 sessions
+    if (_sessions.length > 20) {
+      final removed = _sessions.removeLast();
+      await prefs.remove(_keyMessages(uid, removed.id));
+      await prefs.remove(_keyConvo(uid, removed.id));
+    }
+    _activeSessionId = sid;
+    await _saveSessionsList(prefs: prefs, uid: uid);
+    setState(() {
+      _messages = _makeWelcomeMessages();
+      _conversationHistory.clear();
+      _conversationHistory.add({
+        'role': 'assistant',
+        'content': 'Hai! Saya Asisten Kartara. Ada yang bisa saya bantu? 😊',
+      });
+    });
+  }
+
+  Future<void> _switchSession(String sid) async {
+    if (sid == _activeSessionId) return;
+    _activeSessionId = sid;
+    // Move selected to front of list
+    final idx = _sessions.indexWhere((s) => s.id == sid);
+    if (idx > 0) {
+      final s = _sessions.removeAt(idx);
+      _sessions.insert(0, s);
+    }
     final prefs = await SharedPreferences.getInstance();
+    await _loadSessionMessages(prefs: prefs, uid: _uid, sid: sid);
+  }
 
-    final messagesJsonStr = jsonEncode(_messages.map((m) => m.toJson()).toList());
-    final historyJsonStr = jsonEncode(_conversationHistory);
+  Future<void> _deleteSession(String sid) async {
+    final prefs = await SharedPreferences.getInstance();
+    final uid = _uid;
+    _sessions.removeWhere((s) => s.id == sid);
+    await prefs.remove(_keyMessages(uid, sid));
+    await prefs.remove(_keyConvo(uid, sid));
+    await _saveSessionsList(prefs: prefs, uid: uid);
+    if (sid == _activeSessionId) {
+      if (_sessions.isNotEmpty) {
+        _activeSessionId = _sessions.first.id;
+        await _loadSessionMessages(prefs: prefs, uid: uid, sid: _activeSessionId);
+      } else {
+        await _createNewSession(prefs: prefs, uid: uid);
+      }
+    } else {
+      setState(() {});
+    }
+  }
 
-    await prefs.setString('assistant_messages_$phone', messagesJsonStr);
-    await prefs.setString('assistant_history_$phone', historyJsonStr);
+  // ─── Save ────────────────────────────────────────────────────────────────────
+  Future<void> _saveChatHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final uid = _uid;
+    final sid = _activeSessionId;
+
+    // Trim to 200 messages max (keep welcome messages)
+    List<ChatMessage> toSave = _messages;
+    if (toSave.length > 200) toSave = toSave.sublist(toSave.length - 200);
+
+    await prefs.setString(
+        _keyMessages(uid, sid), jsonEncode(toSave.map((m) => m.toJson()).toList()));
+    await prefs.setString(
+        _keyConvo(uid, sid), jsonEncode(_conversationHistory));
+
+    // Update session metadata
+    final idx = _sessions.indexWhere((s) => s.id == sid);
+    if (idx >= 0) {
+      _sessions[idx].lastMessageAt = DateTime.now();
+      _sessions[idx].messageCount = toSave.length;
+      // Auto-title from first user message
+      if (_sessions[idx].title == 'Sesi Baru' || _sessions[idx].title == 'Sesi Chat') {
+        final firstUser = toSave.firstWhere(
+            (m) => m.sender == 'user',
+            orElse: () => ChatMessage(id: '', sender: '', text: '', timestamp: DateTime.now()));
+        if (firstUser.text.isNotEmpty) {
+          _sessions[idx].title = _generateTitle(firstUser.text);
+        }
+      }
+      await _saveSessionsList(prefs: prefs, uid: uid);
+    }
+  }
+
+  Future<void> _saveSessionsList({required SharedPreferences prefs, required String uid}) async {
+    await prefs.setString(
+        _keySessionsList(uid), jsonEncode(_sessions.map((s) => s.toJson()).toList()));
   }
 
   @override
@@ -219,7 +418,7 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen>
       final has = _inputController.text.trim().isNotEmpty;
       if (has != _hasText) setState(() => _hasText = has);
     });
-    _loadChatHistory();
+    _loadSessions();
   }
 
   @override
@@ -531,91 +730,119 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen>
           ],
         ),
         actions: [
+          // Tombol History
+          IconButton(
+            icon: const Icon(Icons.history_rounded, color: Color(0xFFC0430E), size: 22),
+            tooltip: 'Riwayat Chat',
+            onPressed: () => setState(() => _isHistoryOpen = !_isHistoryOpen),
+          ),
           IconButton(
             icon: const Icon(Icons.delete_sweep_outlined, color: Color(0xFF9E9E9E), size: 22),
-            tooltip: 'Hapus riwayat chat',
+            tooltip: 'Hapus sesi ini',
             onPressed: () => _showClearDialog(context),
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          // 1. Message Thread
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              physics: const BouncingScrollPhysics(),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final msg = _messages[index];
-                if (msg.sender == 'user') {
-                  return _buildUserBubble(msg.text, msg.timestamp);
-                } else if (msg.sender == 'assistant') {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          Column(
+            children: [
+              // 1. Message Thread
+              Expanded(
+                child: ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: _messages.length,
+                  itemBuilder: (context, index) {
+                    final msg = _messages[index];
+                    // Date separator
+                    Widget? separator;
+                    if (index == 0 ||
+                        !_isSameDay(_messages[index - 1].timestamp, msg.timestamp)) {
+                      separator = _buildDateSeparator(msg.timestamp);
+                    }
+                    Widget msgWidget;
+                    if (msg.sender == 'user') {
+                      msgWidget = _buildUserBubble(msg.text, msg.timestamp);
+                    } else if (msg.sender == 'assistant') {
+                      msgWidget = Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _buildAssistantBubble(msg.text, msg.timestamp),
+                          if (msg.order != null) _buildOrderTrackingCard(msg.order!),
+                          if (msg.suggestions != null && msg.suggestions!.isNotEmpty)
+                            _buildSuggestionChips(msg.suggestions!),
+                        ],
+                      );
+                    } else if (msg.sender == 'assistant_options') {
+                      msgWidget = _buildVerticalOptionsPanel();
+                    } else if (msg.sender == 'assistant_products') {
+                      msgWidget = _buildHorizontalProductsPanel(msg.products ?? []);
+                    } else {
+                      msgWidget = const SizedBox();
+                    }
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (separator != null) separator,
+                        msgWidget,
+                      ],
+                    );
+                  },
+                ),
+              ),
+
+              // 2. Typing indicator
+              if (_isTyping)
+                Padding(
+                  padding: const EdgeInsets.only(left: 16, bottom: 8),
+                  child: Row(
                     children: [
-                      _buildAssistantBubble(msg.text, msg.timestamp),
-                      if (msg.order != null) _buildOrderTrackingCard(msg.order!),
-                      if (msg.suggestions != null && msg.suggestions!.isNotEmpty)
-                        _buildSuggestionChips(msg.suggestions!),
+                      Container(
+                        width: 34, height: 34,
+                        decoration: const BoxDecoration(color: Color(0xFFFFF0E6), shape: BoxShape.circle),
+                        child: const Icon(Icons.smart_toy_outlined, color: Color(0xFFC0430E), size: 18),
+                      ),
+                      const SizedBox(width: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: const Color(0xFFFFE0CC)),
+                        ),
+                        child: AnimatedBuilder(
+                          animation: _typingAnimController,
+                          builder: (context, _) => Row(
+                            children: List.generate(3, (i) => Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 2),
+                              width: 6, height: 6,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Color.lerp(
+                                  const Color(0xFFC0430E).withOpacity(0.3),
+                                  const Color(0xFFC0430E),
+                                  i == 0 ? _typingAnimController.value
+                                      : i == 1 ? (_typingAnimController.value + 0.3).clamp(0.0, 1.0)
+                                      : (_typingAnimController.value + 0.6).clamp(0.0, 1.0),
+                                ),
+                              ),
+                            )),
+                          ),
+                        ),
+                      ),
                     ],
-                  );
-                } else if (msg.sender == 'assistant_options') {
-                  return _buildVerticalOptionsPanel();
-                } else if (msg.sender == 'assistant_products') {
-                  return _buildHorizontalProductsPanel(msg.products ?? []);
-                }
-                return const SizedBox();
-              },
-            ),
+                  ),
+                ),
+
+              // 3. Input bar
+              _buildInputBar(),
+            ],
           ),
 
-          // 2. Typing indicator (animated dots)
-          if (_isTyping)
-            Padding(
-              padding: const EdgeInsets.only(left: 16, bottom: 8),
-              child: Row(
-                children: [
-                  Container(
-                    width: 34, height: 34,
-                    decoration: const BoxDecoration(color: Color(0xFFFFF0E6), shape: BoxShape.circle),
-                    child: const Icon(Icons.smart_toy_outlined, color: Color(0xFFC0430E), size: 18),
-                  ),
-                  const SizedBox(width: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: const Color(0xFFFFE0CC)),
-                    ),
-                    child: AnimatedBuilder(
-                      animation: _typingAnimController,
-                      builder: (context, _) => Row(
-                        children: List.generate(3, (i) => Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 2),
-                          width: 6, height: 6,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Color.lerp(
-                              const Color(0xFFC0430E).withOpacity(0.3),
-                              const Color(0xFFC0430E),
-                              i == 0 ? _typingAnimController.value
-                                  : i == 1 ? (_typingAnimController.value + 0.3).clamp(0.0, 1.0)
-                                  : (_typingAnimController.value + 0.6).clamp(0.0, 1.0),
-                            ),
-                          ),
-                        )),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          // 3. Input bar
-          _buildInputBar(),
+          // History Drawer Overlay
+          if (_isHistoryOpen) _buildHistoryDrawer(),
         ],
       ),
     );
@@ -626,26 +853,18 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen>
       context: ctx,
       builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Hapus Riwayat Chat?', style: TextStyle(fontWeight: FontWeight.bold)),
-        content: const Text('Seluruh percakapan dengan Asisten Kartara akan dihapus.'),
+        title: const Text('Hapus Sesi Ini?', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text('Percakapan pada sesi ini akan dihapus. Sesi lain tidak terpengaruh.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Batal')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFC0430E), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFC0430E),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
             onPressed: () async {
               Navigator.pop(ctx);
-              final authState = ref.read(authProvider);
-              final phone = authState.currentUser?.phone ?? 'guest';
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.remove('assistant_messages_$phone');
-              await prefs.remove('assistant_history_$phone');
-              setState(() {
-                _messages = [
-                  ChatMessage(id: 'init', sender: 'assistant', text: 'Hai! Saya Asisten Kartara. Ada yang bisa saya bantu? 😊', timestamp: DateTime.now(), suggestions: ['Rekomendasi terlaris ⭐', 'Cek promo hari ini 🎉', 'Info ongkir 🚚']),
-                  ChatMessage(id: 'init_opts', sender: 'assistant_options', text: '', timestamp: DateTime.now()),
-                ];
-                _conversationHistory.clear();
-              });
+              await _deleteSession(_activeSessionId);
             },
             child: const Text('Hapus', style: TextStyle(color: Colors.white)),
           ),
@@ -1215,6 +1434,218 @@ class _AssistantScreenState extends ConsumerState<AssistantScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  // ─── Date separator helper ────────────────────────────────────────────────
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  Widget _buildDateSeparator(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final d = DateTime(date.year, date.month, date.day);
+    String label;
+    if (d == today) {
+      label = 'Hari ini';
+    } else if (d == today.subtract(const Duration(days: 1))) {
+      label = 'Kemarin';
+    } else {
+      const months = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+      label = '${date.day} ${months[date.month]} ${date.year}';
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        children: [
+          const Expanded(child: Divider(color: Color(0xFFE0D8D0), thickness: 1)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(label,
+                style: const TextStyle(fontSize: 11, color: Color(0xFF9E9E9E), fontWeight: FontWeight.w500)),
+          ),
+          const Expanded(child: Divider(color: Color(0xFFE0D8D0), thickness: 1)),
+        ],
+      ),
+    );
+  }
+
+  // ─── History Drawer ───────────────────────────────────────────────────────
+  Widget _buildHistoryDrawer() {
+    return GestureDetector(
+      onTap: () => setState(() => _isHistoryOpen = false),
+      child: Container(
+        color: Colors.black.withOpacity(0.35),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: GestureDetector(
+            onTap: () {},
+            child: Container(
+              width: 300,
+              height: double.infinity,
+              color: Colors.white,
+              child: SafeArea(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 8, 12),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFFF8F4),
+                        border: Border(bottom: BorderSide(color: Color(0xFFFFE0CC))),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.history_rounded, color: Color(0xFFC0430E), size: 20),
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text('Riwayat Chat',
+                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1A1A1A))),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, size: 18, color: Color(0xFF9E9E9E)),
+                            onPressed: () => setState(() => _isHistoryOpen = false),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Tombol Sesi Baru
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                      child: GestureDetector(
+                        onTap: () async {
+                          setState(() => _isHistoryOpen = false);
+                          await _createNewSession();
+                          _scrollToBottom();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFC0430E),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.add, color: Colors.white, size: 18),
+                              SizedBox(width: 6),
+                              Text('Sesi Baru',
+                                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    const Divider(height: 1, color: Color(0xFFEEE8E0)),
+                    // Daftar Sesi
+                    Expanded(
+                      child: _sessions.isEmpty
+                          ? const Center(
+                              child: Text('Belum ada riwayat chat',
+                                  style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)))
+                          : ListView.separated(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              itemCount: _sessions.length,
+                              separatorBuilder: (_, __) =>
+                                  const Divider(height: 1, indent: 16, endIndent: 16, color: Color(0xFFF0EAE4)),
+                              itemBuilder: (context, i) {
+                                final session = _sessions[i];
+                                final isActive = session.id == _activeSessionId;
+                                final dt = session.lastMessageAt;
+                                final nowDt = DateTime.now();
+                                String timeLabel;
+                                if (_isSameDay(dt, nowDt)) {
+                                  timeLabel = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+                                } else if (_isSameDay(dt, nowDt.subtract(const Duration(days: 1)))) {
+                                  timeLabel = 'Kemarin';
+                                } else {
+                                  const months = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+                                  timeLabel = '${dt.day} ${months[dt.month]}';
+                                }
+                                return Material(
+                                  color: isActive ? const Color(0xFFFFF0E6) : Colors.white,
+                                  child: InkWell(
+                                    onTap: () async {
+                                      setState(() => _isHistoryOpen = false);
+                                      await _switchSession(session.id);
+                                      _scrollToBottom();
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 8, height: 8,
+                                            margin: const EdgeInsets.only(right: 10),
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: isActive ? const Color(0xFFC0430E) : const Color(0xFFDDD8D2),
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(session.title,
+                                                    style: TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                                                      color: isActive ? const Color(0xFFC0430E) : const Color(0xFF1A1A1A),
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis),
+                                                const SizedBox(height: 2),
+                                                Text('$timeLabel · ${session.messageCount} pesan',
+                                                    style: const TextStyle(fontSize: 11, color: Color(0xFF9E9E9E))),
+                                              ],
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(Icons.delete_outline, size: 16, color: Color(0xFFBBBBBB)),
+                                            onPressed: () => showDialog(
+                                              context: context,
+                                              builder: (_) => AlertDialog(
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                                title: const Text('Hapus sesi?',
+                                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                                content: Text('Sesi "${session.title}" akan dihapus.'),
+                                                actions: [
+                                                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+                                                  ElevatedButton(
+                                                    style: ElevatedButton.styleFrom(
+                                                      backgroundColor: const Color(0xFFC0430E),
+                                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                                    ),
+                                                    onPressed: () async {
+                                                      Navigator.pop(context);
+                                                      await _deleteSession(session.id);
+                                                    },
+                                                    child: const Text('Hapus', style: TextStyle(color: Colors.white)),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints(),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

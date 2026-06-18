@@ -98,25 +98,13 @@ class _SplashScreenState extends State<SplashScreen>
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        // Logo - Shopping cart icon
-                        Container(
-                          width: 100,
-                          height: 100,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(24),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.08),
-                                blurRadius: 20,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.shopping_cart_outlined,
-                            size: 50,
-                            color: Color(0xFFC0430E),
+                        // Logo Kartara
+                        SizedBox(
+                          width: 120,
+                          height: 120,
+                          child: Image.asset(
+                            'assets/images/logo_kartara.png',
+                            fit: BoxFit.contain,
                           ),
                         ),
                         const SizedBox(height: 32),

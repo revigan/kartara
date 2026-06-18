@@ -134,25 +134,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               children: [
                 const SizedBox(height: 40),
 
-                // Logo
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.06),
-                        blurRadius: 16,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.shopping_cart_outlined,
-                    size: 40,
-                    color: Color(0xFFC0430E),
+                // Logo Kartara
+                SizedBox(
+                  width: 100,
+                  height: 100,
+                  child: Image.asset(
+                    'assets/images/logo_kartara.png',
+                    fit: BoxFit.contain,
                   ),
                 ),
                 const SizedBox(height: 24),
