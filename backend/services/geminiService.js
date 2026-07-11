@@ -352,46 +352,107 @@ function searchProducts(allProducts, keywords, constraints) {
     return true;
   });
 
-  // Calculate score for keyword relevance
-  const scored = filtered.map(p => {
-    const nameLower = (p.name || '').toLowerCase();
-    const descLower = (p.description || '').toLowerCase();
-    const sellerLower = (p.sellerName || '').toLowerCase();
-    const categoryLower = (p.category || '').toLowerCase();
-    // Normalize characteristics: support both array of strings and comma-separated string
+  // --- Algoritma TF-IDF & Cosine Similarity ---
+  const N = filtered.length;
+
+  // 1. Tokenisasi dan Perhitungan TF (Term Frequency) Dokumen
+  const corpus = filtered.map(p => {
     const charsArray = Array.isArray(p.characteristics)
       ? p.characteristics
-      : (typeof p.characteristics === 'string' ? p.characteristics.split(',') : []);
+      : (typeof p.characteristics === 'string' && p.characteristics ? p.characteristics.split(',') : []);
     const charsText = charsArray.map(c => c.toLowerCase().trim()).join(' ');
-    const allText = [nameLower, descLower, sellerLower, categoryLower, charsText].join(' ');
+    
+    // Memberikan bobot tambahan pada nama dan karakteristik dengan mengulanginya
+    const nameBoost = (p.name || '').toLowerCase() + ' ' + (p.name || '').toLowerCase();
+    const charBoost = charsText + ' ' + charsText;
+    
+    const rawText = `${nameBoost} ${p.description || ''} ${(p.sellerName || '').toLowerCase()} ${(p.category || '').toLowerCase()} ${charBoost}`;
+    const tokens = rawText.replace(/[^\w\s]/g, ' ').split(/\s+/).filter(w => w.length > 0);
+    
+    const tf = {};
+    tokens.forEach(t => {
+      tf[t] = (tf[t] || 0) + 1;
+    });
+    
+    // Normalisasi TF
+    const totalTerms = tokens.length || 1;
+    for (let t in tf) {
+      tf[t] = tf[t] / totalTerms;
+    }
+
+    return { product: p, tf, tokens };
+  });
+
+  // 2. Perhitungan DF (Document Frequency) dan IDF
+  const df = {};
+  corpus.forEach(doc => {
+    Object.keys(doc.tf).forEach(t => {
+      df[t] = (df[t] || 0) + 1;
+    });
+  });
+
+  const computeIdf = (termDf) => Math.log((1 + N) / (1 + termDf)) + 1;
+  const idf = {};
+  for (let t in df) {
+    idf[t] = computeIdf(df[t]);
+  }
+
+  // 3. Pembentukan Vektor Query dan Menghitung Magnitudenya
+  const queryTf = {};
+  const queryTotalTerms = keywords.length || 1;
+  keywords.forEach(kw => {
+    queryTf[kw] = (queryTf[kw] || 0) + 1;
+  });
+  for (let kw in queryTf) {
+    queryTf[kw] = queryTf[kw] / queryTotalTerms;
+  }
+
+  let queryMagSq = 0;
+  const qVector = {};
+  for (let kw in queryTf) {
+    const termIdf = idf[kw] || computeIdf(0); // fallback jika kata kunci tak ada di corpus
+    const weight = queryTf[kw] * termIdf;
+    qVector[kw] = weight;
+    queryMagSq += weight * weight;
+  }
+  const queryMagnitude = Math.sqrt(queryMagSq);
+
+  // 4. Perhitungan Cosine Similarity antara Query dan Dokumen
+  const scored = corpus.map(doc => {
+    let dotProduct = 0;
+    let docMagSq = 0;
+
+    for (let t in doc.tf) {
+      const weight = doc.tf[t] * (idf[t] || 1);
+      docMagSq += weight * weight;
+      
+      if (qVector[t]) {
+        dotProduct += weight * qVector[t];
+      }
+    }
+
+    const docMagnitude = Math.sqrt(docMagSq);
 
     let score = 0;
     if (keywords.length > 0) {
-      for (const kw of keywords) {
-        if (nameLower.includes(kw)) {
-          score += 5; // Strong match: product name
-        }
-        // Characteristic match gets high boost (e.g. "renyah", "gurih", "pedas")
-        if (charsText.includes(kw)) {
-          score += 4;
-        }
-        if (descLower.includes(kw)) {
-          score += 3;
-        }
-        if (categoryLower.includes(kw) || sellerLower.includes(kw)) {
-          score += 2;
-        }
-        // Partial match fallback
-        if (allText.includes(kw)) {
-          score += 1;
+      if (queryMagnitude > 0 && docMagnitude > 0) {
+        score = dotProduct / (queryMagnitude * docMagnitude);
+      }
+      
+      // Fallback: Jika TF-IDF = 0 tapi ada kecocokan substring parsial (misal karena stemming)
+      if (score === 0) {
+        const rawText = doc.tokens.join(' ');
+        for (const kw of keywords) {
+          if (rawText.includes(kw)) {
+             score += 0.0001; 
+          }
         }
       }
     } else {
-      // Baseline score of 1 if product matches filters but no keywords specified
-      score = 1;
+      score = 1; // Tampilkan jika tidak ada keyword tapi lolos constraint
     }
 
-    return { product: p, score };
+    return { product: doc.product, score };
   });
 
   // Filter out any zero score matches

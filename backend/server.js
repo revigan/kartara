@@ -35,6 +35,21 @@ app.use(cors(corsOptions));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    app: 'Kartara Backend',
+    version: '1.0.0',
+    status: 'Running 🚀',
+    api: '/api',
+    health: '/health'
+  });
+});
+
 // Routes
 app.use('/api', paymentRoutes);
 app.use('/api', authRoutes);
@@ -44,8 +59,8 @@ app.use('/api/tracking', trackingRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     message: 'Kartara Payment Gateway Backend is running',
     timestamp: new Date().toISOString()
   });

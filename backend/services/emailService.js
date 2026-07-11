@@ -6,6 +6,20 @@ const nodemailer = require('nodemailer');
  * Setup: https://myaccount.google.com/apppasswords
  */
 function createTransporter() {
+  // Jika SMTP_HOST diatur (misal: smtp-relay.brevo.com untuk Brevo), gunakan custom SMTP
+  if (process.env.SMTP_HOST) {
+    return nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587', 10),
+      secure: process.env.SMTP_SECURE === 'true', // true untuk port 465 (SSL), false untuk 587 (TLS/STARTTLS)
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+  }
+
+  // Fallback default ke Gmail SMTP
   return nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -152,7 +166,7 @@ async function sendOtpEmail({ to, otp, purpose = 'register' }) {
   };
 
   const info = await transporter.sendMail({
-    from: `"Kartara" <${process.env.SMTP_USER}>`,
+    from: `"Kartara" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
     to,
     subject: subjectMap[purpose] || subjectMap.register,
     html: buildOtpEmailHtml({ otp, purpose }),

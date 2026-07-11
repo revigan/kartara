@@ -661,13 +661,16 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                               color: const Color(0xFFE0D5C7),
                             ),
                           ),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16),
-                            child: Text(
-                              'atau daftar dengan',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF9E9E9E),
+                          Flexible(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              child: Text(
+                                'atau daftar dengan',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF9E9E9E),
+                                ),
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ),
@@ -738,11 +741,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 const SizedBox(height: 24),
 
                 // Login link
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     const Text(
-                      'Sudah punya akun?  ',
+                      'Sudah punya akun? ',
                       style: TextStyle(
                         fontSize: 14,
                         color: Color(0xFF6B5E52),

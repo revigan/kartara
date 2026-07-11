@@ -8,6 +8,7 @@ import 'package:mailer/mailer.dart';
 import 'package:mailer/smtp_server.dart';
 import 'package:http/http.dart' as http;
 import '../config/pocketbase_config.dart';
+import '../config/app_config.dart';
 import '../models/user.dart';
 
 class AuthState {
@@ -425,10 +426,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  /// Mengembalikan base URL backend (ngrok atau localhost).
+  /// Mengembalikan base URL backend (VPS atau ngrok).
   String _backendBaseUrl() {
-    // Gunakan localhost saat desktop/web, ngrok untuk akses dari emulator/device
-    return 'http://localhost:3000/api';
+    return AppConfig.apiBaseUrl;
   }
 
   Future<bool> requestPasswordReset(String email) async {
@@ -538,8 +538,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
       // Reset password via backend Node.js (menggunakan admin PocketBase auth)
       // Sama seperti createPassword — backend login sebagai admin, tidak perlu oldPassword
       final response = await http.post(
-        Uri.parse('http://localhost:3000/api/reset-password'),
-        headers: {'Content-Type': 'application/json'},
+        Uri.parse('${_backendBaseUrl()}/reset-password'),
+        headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
         body: jsonEncode({
           'email': email.trim().toLowerCase(),
           'newPassword': newPassword,
@@ -731,8 +731,8 @@ class AuthNotifier extends StateNotifier<AuthState> {
         // Backend sudah login sebagai admin PocketBase (pb.admins.authWithPassword)
         // sehingga bisa set password tanpa oldPassword untuk user OAuth
         final response = await http.post(
-          Uri.parse('http://localhost:3000/api/set-first-password'),
-          headers: {'Content-Type': 'application/json'},
+          Uri.parse('${_backendBaseUrl()}/set-first-password'),
+          headers: {'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true'},
           body: jsonEncode({
             'userId': user.uid,
             'password': newPassword.trim(),

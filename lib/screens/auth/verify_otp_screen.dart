@@ -47,7 +47,12 @@ class _VerifyOtpScreenState extends ConsumerState<VerifyOtpScreen> {
   }
 
   void _startTimer() {
+    _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_remainingSeconds > 0) {
         setState(() {
           _remainingSeconds--;
@@ -77,11 +82,12 @@ class _VerifyOtpScreenState extends ConsumerState<VerifyOtpScreen> {
         widget.email,
       );
       
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
       
-      if (success && mounted) {
+      if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Kode OTP telah dikirim ulang'),
@@ -92,19 +98,18 @@ class _VerifyOtpScreenState extends ConsumerState<VerifyOtpScreen> {
         );
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Gagal mengirim ulang OTP: ${e.toString()}'),
-            backgroundColor: const Color(0xFFE57373),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal mengirim ulang OTP: ${e.toString()}'),
+          backgroundColor: const Color(0xFFE57373),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
     }
   }
 
@@ -134,11 +139,12 @@ class _VerifyOtpScreenState extends ConsumerState<VerifyOtpScreen> {
         otp,
       );
 
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
 
-      if (isValid && mounted) {
+      if (isValid) {
         // Navigate to reset password screen
         Navigator.pushReplacement(
           context,
@@ -149,7 +155,7 @@ class _VerifyOtpScreenState extends ConsumerState<VerifyOtpScreen> {
             ),
           ),
         );
-      } else if (!isValid && mounted) {
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Kode OTP tidak valid atau sudah kadaluarsa'),
@@ -160,19 +166,18 @@ class _VerifyOtpScreenState extends ConsumerState<VerifyOtpScreen> {
         );
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: const Color(0xFFE57373),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: const Color(0xFFE57373),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
     }
   }
 
