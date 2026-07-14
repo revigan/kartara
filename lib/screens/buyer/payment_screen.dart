@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gal/gal.dart';
 import 'package:dio/dio.dart';
+import 'package:universal_html/html.dart' as html;
 import '../../providers/app_state.dart';
 import '../../providers/payment_provider.dart';
 import '../../models/order.dart';
@@ -107,6 +109,32 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     setState(() => _isSavingQr = true);
 
     try {
+      if (kIsWeb) {
+        // Handle web download using universal_html
+        String dataUrl;
+        if (qrisB64 != null && qrisB64.isNotEmpty) {
+          final raw = qrisB64.contains(',') ? qrisB64.split(',').last : qrisB64;
+          dataUrl = 'data:image/png;base64,$raw';
+        } else {
+          dataUrl = qrisUrl!;
+        }
+
+        final anchor = html.AnchorElement(href: dataUrl)
+          ..setAttribute('download', 'qris_payment.png')
+          ..style.display = 'none';
+        html.document.body?.append(anchor);
+        anchor.click();
+        anchor.remove();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('QR Code berhasil diunduh!'), backgroundColor: Colors.green),
+          );
+        }
+        return;
+      }
+
+      // Native platform download logic (using gal)
       late Uint8List bytes;
       if (qrisB64 != null && qrisB64.isNotEmpty) {
         final raw = qrisB64.contains(',') ? qrisB64.split(',').last : qrisB64;
