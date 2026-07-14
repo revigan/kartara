@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const bodyParser = require('body-parser');
 const paymentRoutes = require('./routes/payment');
 const authRoutes = require('./routes/auth');
@@ -10,6 +11,9 @@ const trackingRoutes = require('./routes/tracking');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Serve static files
+app.use('/static', express.static(path.join(__dirname, 'static')));
 
 // Middleware
 const corsOptions = {

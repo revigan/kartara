@@ -66,8 +66,8 @@ function buildOtpEmailHtml({ otp, purpose = 'register' }) {
           <!-- Header -->
           <tr>
             <td style="background:linear-gradient(135deg,#C0430E 0%,#E05A20 100%);padding:32px 40px;text-align:center;">
-              <div style="width:60px;height:60px;background:rgba(255,255,255,0.15);border-radius:16px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px;">
-                <span style="font-size:28px;">🛒</span>
+              <div style="margin-bottom:16px; display:inline-block;">
+                <img src="${process.env.APP_URL || 'https://kartara-production.up.railway.app'}/static/logo_kartara.png" width="60" height="60" alt="Kartara Logo" style="border-radius:16px; background-color: #FFFFFF; padding: 4px; object-fit: contain; display: block;" />
               </div>
               <h1 style="margin:0;color:#FFFFFF;font-size:26px;font-weight:700;letter-spacing:-0.5px;">Kartara</h1>
               <p style="margin:8px 0 0;color:rgba(255,255,255,0.85);font-size:14px;">${headline}</p>
