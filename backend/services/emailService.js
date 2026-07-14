@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const axios = require('axios');
 
 /**
  * Membuat transporter nodemailer dengan Gmail SMTP.
@@ -157,19 +158,61 @@ async function sendOtpEmail({ to, otp, purpose = 'register' }) {
     return { sent: false, devMode: true };
   }
 
-  // ── PRODUCTION MODE: Kirim via Gmail SMTP ──────────────────────────────────
-  const transporter = createTransporter();
-
   const subjectMap = {
     register: '✉️ Kode Verifikasi Akun Kartara Anda',
     reset: '🔐 Kode OTP Pemulihan Kata Sandi - Kartara',
   };
+  const subject = subjectMap[purpose] || subjectMap.register;
+  const htmlContent = buildOtpEmailHtml({ otp, purpose });
+  const fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER;
+
+  // ── METODE A: Brevo HTTP API (Mengatasi Port SMTP yang diblokir di Railway) ────
+  const isBrevoApiKey =
+    process.env.SMTP_PASS.startsWith('xkeysib-') ||
+    (process.env.BREVO_API_KEY && process.env.BREVO_API_KEY.startsWith('xkeysib-'));
+
+  if (isBrevoApiKey) {
+    const apiKey = process.env.BREVO_API_KEY || process.env.SMTP_PASS;
+    console.log('[EMAIL] Mengirim OTP menggunakan Brevo HTTP API (Port 443)...');
+    try {
+      const response = await axios.post(
+        'https://api.brevo.com/v3/smtp/email',
+        {
+          sender: { name: 'Kartara', email: fromEmail },
+          to: [{ email: to }],
+          subject: subject,
+          htmlContent: htmlContent,
+        },
+        {
+          headers: {
+            'api-key': apiKey,
+            'content-type': 'application/json',
+            'accept': 'application/json',
+          },
+        }
+      );
+      console.log(`[EMAIL] ✅ OTP email sent via Brevo API to ${to} | MessageId: ${response.data.messageId}`);
+      return { sent: true, devMode: false };
+    } catch (apiError) {
+      const errMsg = apiError.response?.data || apiError.message;
+      console.error('[EMAIL] ❌ Gagal mengirim via Brevo API:', errMsg);
+      throw new Error(`Brevo API Error: ${JSON.stringify(errMsg)}`);
+    }
+  }
+
+  // ── METODE B: Standard SMTP (Nodemailer) ──────────────────────────────────
+  if (process.env.RAILWAY_ENVIRONMENT) {
+    console.warn('⚠️ [WARNING] Anda menggunakan SMTP standard di Railway. Railway memblokir port SMTP (587/465) pada plan Hobby/Free.');
+    console.warn('⚠️ Disarankan untuk menggunakan Brevo API Key (berawalan xkeysib-) agar tidak diblokir.');
+  }
+
+  const transporter = createTransporter();
 
   const info = await transporter.sendMail({
-    from: `"Kartara" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+    from: `"Kartara" <${fromEmail}>`,
     to,
-    subject: subjectMap[purpose] || subjectMap.register,
-    html: buildOtpEmailHtml({ otp, purpose }),
+    subject,
+    html: htmlContent,
   });
 
   console.log(`[EMAIL] ✅ OTP email sent to ${to} | MessageId: ${info.messageId}`);

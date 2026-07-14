@@ -7,7 +7,7 @@ class AppConfig {
 
   // ── URL Backend PRODUKSI (Railway) ────────────────────────────────────────
   static const String _railwayUrl =
-      'https://kartara-production-1c7d.up.railway.app';
+      'https://kartara-production.up.railway.app';
 
   // ── URL Backend LOKAL (Ngrok untuk development) ───────────────────────────
   /// 🔧 URL ngrok aktif (ganti setiap kali ngrok di-restart)

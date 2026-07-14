@@ -3,7 +3,7 @@ import 'package:pocketbase/pocketbase.dart';
 class PocketBaseConfig {
   // ── URL PocketBase ────────────────────────────────────────────────────────
   // ✅ ONLINE (Railway) — aktif
-  static const String baseUrl = 'https://kartara-production.up.railway.app';
+  static const String baseUrl = 'https://kartara-production-97ca.up.railway.app';
 
   // 🔧 LOKAL (Development) — uncomment jika testing lokal
   // static const String baseUrl = 'http://127.0.0.1:8090';
