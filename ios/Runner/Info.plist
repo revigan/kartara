@@ -84,6 +84,8 @@
 		<string>http</string>
 		<string>https</string>
 	</array>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Aplikasi memerlukan izin untuk menyimpan QR Code pembayaran ke galeri foto Anda.</string>
 </dict>
 
 </plist>

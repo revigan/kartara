@@ -36,8 +36,11 @@ router.post('/create-transaction', async (req, res) => {
 
     console.log(`📥 [KlikQRIS] Create transaction: order=${orderId}, amount=${totalAmount}`);
 
+    // Gunakan suffix timestamp agar orderId selalu unik di KlikQRIS dan mencegah "Order ID sudah digunakan"
+    const uniqueOrderId = `${orderId}-${Math.floor(Date.now() / 1000)}`;
+
     const payload = {
-      order_id:    orderId,
+      order_id:    uniqueOrderId,
       id_merchant: KLIKQRIS_MERCHANT_ID,
       amount:      Math.round(totalAmount),
       keterangan:  keterangan || `Pembayaran Pesanan #${orderId}`,
@@ -59,10 +62,10 @@ router.post('/create-transaction', async (req, res) => {
     const txData = data.data;
     console.log(`✅ [KlikQRIS] Transaction created: order=${txData.order_id}, status=${txData.status}`);
 
-    // Simpan signature ke snap_token agar bisa dipakai polling nanti
+    // Simpan uniqueOrderId ke snap_token agar bisa dipakai polling status nanti
     try {
       await pb.collection('orders').update(orderId, {
-        snap_token: txData.signature || '',
+        snap_token: uniqueOrderId,
         payment_status: 'pending_payment',
       });
     } catch (pbErr) {
@@ -81,10 +84,17 @@ router.post('/create-transaction', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ [KlikQRIS] create-transaction error:', error.response?.data || error.message);
+    let detailMessage = error.response?.data?.message || error.message;
+    if (error.response?.data?.errors) {
+      const details = Object.entries(error.response.data.errors)
+        .map(([field, msgs]) => `${field}: ${msgs.join(', ')}`)
+        .join('; ');
+      detailMessage = `${detailMessage} (${details})`;
+    }
+    console.error('❌ [KlikQRIS] create-transaction error:', detailMessage);
     res.status(500).json({
       error: 'Failed to create QRIS transaction',
-      message: error.response?.data?.message || error.message,
+      message: detailMessage,
     });
   }
 });
@@ -99,9 +109,13 @@ router.get('/payment-status/:orderId', async (req, res) => {
   // 1. Cek PocketBase terlebih dahulu
   let orderData = null;
   let pbPaymentStatus = 'pending_payment';
+  let targetOrderId = orderId; // Default
   try {
     const order = await pb.collection('orders').getOne(orderId);
     pbPaymentStatus = order.payment_status || 'pending_payment';
+    if (order.snap_token) {
+      targetOrderId = order.snap_token;
+    }
     orderData = {
       payment_status: pbPaymentStatus,
       order_status: order.status,
@@ -124,11 +138,11 @@ router.get('/payment-status/:orderId', async (req, res) => {
   let kqStatus = 'PENDING';
   try {
     const kqRes = await axios.get(
-      `${KLIKQRIS_BASE_URL}/qris/status/${orderId}`,
+      `${KLIKQRIS_BASE_URL}/qris/status/${targetOrderId}`,
       { headers: klikqrisHeaders() }
     );
     kqStatus = kqRes.data?.data?.status || 'PENDING';
-    console.log(`🔍 [KlikQRIS] Status for ${orderId}: ${kqStatus}`);
+    console.log(`🔍 [KlikQRIS] Status for ${targetOrderId}: ${kqStatus}`);
 
     // Sinkronkan ke PocketBase jika sudah PAID
     if (kqStatus === 'SUCCESS' || kqStatus === 'PAID') {
@@ -144,7 +158,7 @@ router.get('/payment-status/:orderId', async (req, res) => {
       }
     }
   } catch (kqError) {
-    console.log(`KlikQRIS status check failed for ${orderId}:`, kqError.message);
+    console.log(`KlikQRIS status check failed for ${targetOrderId}:`, kqError.message);
   }
 
   const isPaid = kqStatus === 'SUCCESS' || kqStatus === 'PAID';
@@ -166,12 +180,14 @@ router.post('/klikqris/webhook', async (req, res) => {
     const body = req.body;
     console.log('📥 [KlikQRIS] Webhook received:', JSON.stringify(body));
 
-    const orderId = body.order_id || body.data?.order_id;
-    const status  = (body.status  || body.data?.status || '').toUpperCase();
-
-    if (!orderId) {
+    const rawOrderId = body.order_id || body.data?.order_id;
+    if (!rawOrderId) {
       return res.status(400).json({ error: 'Missing order_id' });
     }
+
+    // Ekstrak real order ID jika ada suffix (e.g. gma672w3q301c73-1784041000 -> gma672w3q301c73)
+    const orderId = rawOrderId.split('-')[0];
+    const status  = (body.status  || body.data?.status || '').toUpperCase();
 
     if (status === 'PAID' || status === 'SUCCESS') {
       await pb.collection('orders').update(orderId, {

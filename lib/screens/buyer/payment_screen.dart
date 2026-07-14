@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gal/gal.dart';
+import 'package:dio/dio.dart';
 import '../../providers/app_state.dart';
 import '../../providers/payment_provider.dart';
 import '../../models/order.dart';
@@ -18,6 +21,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   String _selectedMethod = 'QRIS'; // 'QRIS', 'COD', 'Transfer Bank'
   bool _isProcessing = false;
   bool _showQrisScreen = false;
+  bool _isSavingQr = false;
   Timer? _pollTimer;
 
   @override
@@ -90,6 +94,61 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
         }
       }
     });
+  }
+
+  Future<void> _downloadQrCode(String? qrisB64, String? qrisUrl) async {
+    if ((qrisB64 == null || qrisB64.isEmpty) && (qrisUrl == null || qrisUrl.isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Gambar QR tidak tersedia'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _isSavingQr = true);
+
+    try {
+      late Uint8List bytes;
+      if (qrisB64 != null && qrisB64.isNotEmpty) {
+        final raw = qrisB64.contains(',') ? qrisB64.split(',').last : qrisB64;
+        bytes = base64Decode(raw);
+      } else if (qrisUrl != null && qrisUrl.isNotEmpty) {
+        final response = await Dio().get<List<int>>(
+          qrisUrl,
+          options: Options(responseType: ResponseType.bytes),
+        );
+        if (response.data != null) {
+          bytes = Uint8List.fromList(response.data!);
+        } else {
+          throw Exception('Gagal mendownload data gambar');
+        }
+      }
+
+      final hasAccess = await Gal.hasAccess();
+      if (!hasAccess) {
+        final request = await Gal.requestAccess();
+        if (!request) {
+          throw Exception('Izin akses galeri ditolak');
+        }
+      }
+
+      await Gal.putImageBytes(bytes);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('QR Code berhasil disimpan ke galeri!'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal menyimpan QR: ${e.toString().replaceAll('Exception: ', '')}'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingQr = false);
+      }
+    }
   }
 
   // ── Layar QR Code native ──────────────────────────────────────────────────
@@ -171,6 +230,26 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                       width: 260, height: 260,
                       child: Center(child: CircularProgressIndicator(color: Color(0xFFC0430E))),
                     ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: _isSavingQr
+                  ? null
+                  : () => _downloadQrCode(qrisB64, payState.qrisUrl),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFC0430E),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              icon: _isSavingQr
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    )
+                  : const Icon(Icons.download, size: 20),
+              label: Text(_isSavingQr ? 'Menyimpan...' : 'Simpan QR ke Galeri'),
             ),
             const SizedBox(height: 20),
             // Instruksi
@@ -271,14 +350,6 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                 const Text('Pilih Metode Pembayaran', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2C2C2C))),
                 const SizedBox(height: 16),
                 _buildPaymentOption('QRIS', 'Bayar dengan QRIS', 'GoPay, OVO, DANA, ShopeePay, Mobile Banking', Icons.qr_code_2),
-                const SizedBox(height: 12),
-                _buildPaymentOption('COD', 'Cash on Delivery', 'Bayar tunai saat barang tiba', Icons.local_shipping_outlined),
-                const SizedBox(height: 12),
-                _buildPaymentOption('Transfer Bank', 'Transfer Bank Manual', 'Transfer ke rekening BCA/Mandiri', Icons.account_balance_outlined),
-                if (_selectedMethod == 'Transfer Bank') ...[
-                  const SizedBox(height: 16),
-                  _buildBankInfo(),
-                ],
                 const SizedBox(height: 120),
               ],
             ),

@@ -120,12 +120,19 @@ class PaymentNotifier extends StateNotifier<PaymentState> {
       }
     } on DioException catch (e) {
       debugPrint('KlikQRIS createTransaction error: $e');
+      if (e.response != null) {
+        debugPrint('Response status: ${e.response?.statusCode}');
+        debugPrint('Response data: ${e.response?.data}');
+      }
       String errorMsg = 'Gagal menghubungi server pembayaran';
       if (e.type == DioExceptionType.connectionTimeout ||
           e.type == DioExceptionType.receiveTimeout) {
         errorMsg = 'Koneksi timeout. Periksa koneksi internet Anda.';
-      } else if (e.response?.statusCode == 400) {
-        errorMsg = e.response?.data['error'] ?? 'Data pesanan tidak valid.';
+      } else if (e.response?.data != null && e.response?.data is Map && e.response?.data['error'] != null) {
+        errorMsg = e.response?.data['error'];
+        if (e.response?.data['message'] != null) {
+          errorMsg = '$errorMsg: ${e.response?.data['message']}';
+        }
       }
       state = state.copyWith(isLoading: false, error: errorMsg);
       return false;
