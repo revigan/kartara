@@ -1,4 +1,4 @@
-package com.example.kartara
+package com.kartala.kartala_app
 
 import io.flutter.embedding.android.FlutterActivity
 

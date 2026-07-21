@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
+import '../../config/responsive.dart';
 import 'forgot_password_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -125,60 +126,63 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F1ED),
       body: SafeArea(
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              children: [
-                const SizedBox(height: 40),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: EdgeInsets.symmetric(horizontal: R.hPad(context, base: 24)),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    SizedBox(height: R.sp(context, 40)),
 
                 // Logo Kartara
                 SizedBox(
-                  width: 100,
-                  height: 100,
+                  width: R.logoSize(context),
+                  height: R.logoSize(context),
                   child: Image.asset(
                     'assets/images/logo_kartara.png',
                     fit: BoxFit.contain,
                   ),
                 ),
-                const SizedBox(height: 24),
+                SizedBox(height: R.sp(context, 24)),
 
                 // Brand name
-                const Text(
+                Text(
                   'Kartara',
                   style: TextStyle(
-                    fontSize: 36,
+                    fontSize: R.fs(context, 36),
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFFC0430E),
+                    color: const Color(0xFFC0430E),
                     letterSpacing: -0.5,
                   ),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: R.sp(context, 12)),
 
                 // Subtitle
-                const Text(
+                Text(
                   'Selamat Datang!',
                   style: TextStyle(
-                    fontSize: 22,
+                    fontSize: R.fs(context, 22),
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF2C2C2C),
+                    color: const Color(0xFF2C2C2C),
                   ),
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: R.sp(context, 8)),
 
                 // Description
-                const Text(
+                Text(
                   'Masuk untuk melanjutkan belanja\nkrupuk favoritmu.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF6B5E52),
+                    fontSize: R.fs(context, 14),
+                    color: const Color(0xFF6B5E52),
                     height: 1.5,
                   ),
                 ),
-                const SizedBox(height: 40),
+                SizedBox(height: R.sp(context, 40)),
 
                 // Form container
                 Container(
@@ -345,59 +349,117 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 16),
 
                       // Remember me & Forgot password
-                      Row(
-                        children: [
-                          SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: Checkbox(
-                              value: _rememberMe,
-                              onChanged: (value) {
-                                setState(() {
-                                  _rememberMe = value ?? false;
-                                });
-                              },
-                              activeColor: const Color(0xFFC0430E),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          const Text(
-                            'Ingat saya',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF6B5E52),
-                            ),
-                          ),
-                          const Spacer(),
-                          GestureDetector(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const ForgotPasswordScreen(),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          if (constraints.maxWidth < 240) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  children: [
+                                    SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: Checkbox(
+                                        value: _rememberMe,
+                                        onChanged: (value) {
+                                          setState(() {
+                                            _rememberMe = value ?? false;
+                                          });
+                                        },
+                                        activeColor: const Color(0xFFC0430E),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Ingat saya',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xFF6B5E52),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              );
-                            },
-                            child: const Text(
-                              'Lupa kata sandi?',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFFC0430E),
-                                fontWeight: FontWeight.w600,
+                                const SizedBox(height: 12),
+                                GestureDetector(
+                                  onTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => const ForgotPasswordScreen(),
+                                      ),
+                                    );
+                                  },
+                                  child: const Text(
+                                    'Lupa kata sandi?',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Color(0xFFC0430E),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
+                          return Row(
+                            children: [
+                              SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: Checkbox(
+                                  value: _rememberMe,
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _rememberMe = value ?? false;
+                                    });
+                                  },
+                                  activeColor: const Color(0xFFC0430E),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                ),
                               ),
-                            ),
-                          ),
-                        ],
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Ingat saya',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFF6B5E52),
+                                ),
+                              ),
+                              const Spacer(),
+                              GestureDetector(
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const ForgotPasswordScreen(),
+                                    ),
+                                  );
+                                },
+                                child: const Text(
+                                  'Lupa kata sandi?',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFFC0430E),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                       const SizedBox(height: 24),
 
                       // Login button
                       SizedBox(
                         width: double.infinity,
-                        height: 50,
+                        height: R.btnHeight(context),
                         child: ElevatedButton(
                           onPressed: authState.isLoading ? null : _handleLogin,
                           style: ElevatedButton.styleFrom(
@@ -430,38 +492,53 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 20),
 
                       // Divider
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              height: 1,
-                              color: const Color(0xFFE0D5C7),
-                            ),
-                          ),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16),
-                            child: Text(
-                              'atau masuk dengan',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF9E9E9E),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          if (constraints.maxWidth < 200) {
+                            return const Center(
+                              child: Text(
+                                'atau masuk dengan',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF9E9E9E),
+                                ),
                               ),
-                            ),
-                          ),
-                          Expanded(
-                            child: Container(
-                              height: 1,
-                              color: const Color(0xFFE0D5C7),
-                            ),
-                          ),
-                        ],
+                            );
+                          }
+                          return Row(
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  height: 1,
+                                  color: const Color(0xFFE0D5C7),
+                                ),
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 16),
+                                child: Text(
+                                  'atau masuk dengan',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF9E9E9E),
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: Container(
+                                  height: 1,
+                                  color: const Color(0xFFE0D5C7),
+                                ),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                       const SizedBox(height: 20),
 
                       // Google button
                       SizedBox(
                         width: double.infinity,
-                        height: 50,
+                        height: R.btnHeight(context),
                         child: OutlinedButton(
                           onPressed: _handleGoogleLogin,
                           style: OutlinedButton.styleFrom(
@@ -515,8 +592,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 const SizedBox(height: 24),
 
                 // Register link
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     const Text(
                       'Belum punya akun?  ',
@@ -544,6 +622,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           ),
         ),
       ),
-    );
+    ),
+  ),
+);
   }
 }

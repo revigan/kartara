@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/app_state.dart';
 import '../../models/product.dart';
 import '../../widgets/success_notification.dart';
+import '../../config/responsive.dart';
 
 class AllProductsScreen extends ConsumerStatefulWidget {
   const AllProductsScreen({super.key});
@@ -114,11 +115,11 @@ class _AllProductsScreenState extends ConsumerState<AllProductsScreen> {
                       padding: const EdgeInsets.all(16),
                       physics: const BouncingScrollPhysics(),
                       itemCount: filteredProducts.length,
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        mainAxisExtent: 265,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: R.gridCols(context),
+                        mainAxisExtent: R.gridItemExtent(context) - 15,
+                        crossAxisSpacing: R.sp(context, 12),
+                        mainAxisSpacing: R.sp(context, 12),
                       ),
                       itemBuilder: (context, idx) {
                         final p = filteredProducts[idx];

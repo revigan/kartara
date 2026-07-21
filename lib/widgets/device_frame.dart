@@ -14,173 +14,25 @@ class DeviceFrameWrapper extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final navState = ref.watch(navigationProvider);
-    final navNotifier = ref.read(navigationProvider.notifier);
-
-    // Responsive check: if screen width is narrow, show raw mobile app full-screen.
-    // Otherwise, render the gorgeous desktop simulation environment with info sidebar and device frame!
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth < 600) {
-          return Scaffold(
-            body: child,
-          );
+          return child;
         }
 
         return Scaffold(
-          body: Container(
-            width: double.infinity,
-            height: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color(0xFFF5EFE8), // Warm parchment
-                  Color(0xFFEDE4D8), // Earthy clay cream
-                ],
-              ),
-            ),
-            child: LayoutBuilder(
-              builder: (context, innerConstraints) {
-                // Calculate if we have enough space for side panel
-                final hasSpaceForPanel = innerConstraints.maxWidth >= 800;
-                final deviceScale = innerConstraints.maxWidth < 900 ? 0.8 : 1.0;
-                
-                return SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      minWidth: innerConstraints.maxWidth,
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Info & Control Panel on Left
-                        if (showControls && hasSpaceForPanel) ...[
-                          _buildInfoPanel(context, navState.role, navNotifier),
-                          const SizedBox(width: 50),
-                        ],
-                        
-                        // Smartphone Bezel Simulator
-                        Center(
-                          child: Transform.scale(
-                            scale: deviceScale,
-                            child: Container(
-                              width: 390,
-                              height: 820,
-                              margin: const EdgeInsets.symmetric(vertical: 24),
-                              decoration: BoxDecoration(
-                                color: Colors.black,
-                                borderRadius: BorderRadius.circular(48),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(0xFFC0430E).withOpacity(0.12),
-                                    blurRadius: 30,
-                                    offset: const Offset(0, 15),
-                                  ),
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.25),
-                                    blurRadius: 40,
-                                    offset: const Offset(0, 20),
-                                  ),
-                                ],
-                                border: Border.all(
-                                  color: const Color(0xFF1A1A1A),
-                                  width: 10,
-                                ),
-                              ),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(38),
-                                child: Stack(
-                                  children: [
-                                    // App Contents
-                                    Positioned.fill(
-                                      child: Container(
-                                        color: const Color(0xFFFAF7F2), // Cream background
-                                        padding: const EdgeInsets.only(top: 40, bottom: 20), // Compensate for notch & home bar
-                                        child: child,
-                                      ),
-                                    ),
-                                    
-                                    // Top Status Bar Area
-                                    Positioned(
-                                      top: 0,
-                                      left: 0,
-                                      right: 0,
-                                      height: 40,
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                                        color: Colors.transparent,
-                                        child: Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            const Text(
-                                              '15:55',
-                                              style: TextStyle(
-                                                color: Colors.black,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 13,
-                                              ),
-                                            ),
-                                            // Notch / Dynamic Island representation
-                                            Container(
-                                              width: 110,
-                                              height: 25,
-                                              decoration: BoxDecoration(
-                                                color: Colors.black,
-                                                borderRadius: BorderRadius.circular(15),
-                                              ),
-                                            ),
-                                            // Status bar icons (Wifi, Network, Battery)
-                                            const Row(
-                                              children: [
-                                                Icon(Icons.signal_cellular_4_bar, size: 13, color: Colors.black),
-                                                SizedBox(width: 4),
-                                                Icon(Icons.wifi, size: 13, color: Colors.black),
-                                                SizedBox(width: 4),
-                                                Icon(Icons.battery_5_bar, size: 13, color: Colors.black),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                    
-                                    // Bottom Home Indicator Bar
-                                    Positioned(
-                                      bottom: 0,
-                                      left: 0,
-                                      right: 0,
-                                      height: 20,
-                                      child: Center(
-                                        child: Container(
-                                          width: 120,
-                                          height: 5,
-                                          decoration: BoxDecoration(
-                                            color: Colors.black.withOpacity(0.5),
-                                            borderRadius: BorderRadius.circular(2.5),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
+          backgroundColor: const Color(0xFFFAF7F2), // Unified Kartara cream background
+          body: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 600),
+              child: child,
             ),
           ),
         );
       },
     );
   }
+
 
   // Info sidebar showing Kartara branding and state changes
   Widget _buildInfoPanel(BuildContext context, String role, NavigationNotifier navNotifier) {

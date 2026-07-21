@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../models/product.dart';
 import '../../models/promo_banner.dart';
 import '../../widgets/success_notification.dart';
+import '../../config/responsive.dart';
 import 'promo_screen.dart';
 
 class BuyerHomeScreen extends ConsumerStatefulWidget {
@@ -306,7 +307,7 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
       alignment: Alignment.bottomCenter,
       children: [
         SizedBox(
-          height: 170,
+          height: R.bannerHeight(context),
           child: PageView.builder(
             controller: _bannerController,
             itemCount: activeBanners.length,
@@ -1388,11 +1389,11 @@ class _BuyerHomeScreenState extends ConsumerState<BuyerHomeScreen> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: products.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        mainAxisExtent: 280,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: R.gridCols(context),
+        mainAxisExtent: R.gridItemExtent(context),
+        crossAxisSpacing: R.sp(context, 16),
+        mainAxisSpacing: R.sp(context, 16),
       ),
       itemBuilder: (context, idx) {
         final p = products[idx];
